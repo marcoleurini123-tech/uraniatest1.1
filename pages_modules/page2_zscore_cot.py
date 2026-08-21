@@ -45,8 +45,7 @@ def generate_full_cftc_analytics():
             base_oi = np.random.randint(120000, 750000)
             oi_series = base_oi + np.cumsum(np.random.normal(0, 4500, size=len(dates)))
             
-            # Dinamica realistica di copertura commerciale vs speculazione
-            comm_bias = -1.0 if "Metalli" in category or "Indici" in category else -0.7
+            comm_bias = -1.0 if ("Metalli" in category or "Indici" in category) else -0.7
             comm_net = (comm_bias * base_oi * 0.3) - np.cumsum(np.random.normal(0, 3200, size=len(dates)))
             non_comm_net = -comm_net + np.random.normal(0, 2500, size=len(dates))
 
@@ -68,7 +67,6 @@ def generate_full_cftc_analytics():
                 "df": df_item
             }
 
-            # Estrazione dell'ultima riga per la Opportunity Table
             last = df_item.iloc[-1]
             z_nc_1y = float(last["Non_Comm_Net_Z_1Y"])
             z_nc_3y = float(last["Non_Comm_Net_Z_3Y"])
@@ -76,7 +74,6 @@ def generate_full_cftc_analytics():
             z_c_3y = float(last["Comm_Net_Z_3Y"])
             z_oi_1y = float(last["Open_Interest_Z_1Y"])
 
-            # Eccessi statistici (|Z| >= 1.85)
             is_extreme = (abs(z_nc_1y) >= 1.85) or (abs(z_c_1y) >= 1.85) or (abs(z_nc_3y) >= 1.85)
             star = "⭐" if is_extreme else "⚪"
 
@@ -104,6 +101,13 @@ def generate_full_cftc_analytics():
 
     return cot_database, pd.DataFrame(opps_list)
 
+def color_bias(val):
+    if "SELL" in str(val):
+        return "background-color: rgba(239, 68, 68, 0.25); font-weight: bold;"
+    elif "BUY" in str(val):
+        return "background-color: rgba(16, 185, 129, 0.25); font-weight: bold;"
+    return ""
+
 def render_page2():
     st.title("📊 Z-Score Normalization & COT Positioning Lab (CFTC)")
     st.caption("Monitoraggio quantitativo completo dei flussi istituzionali CFTC: Indici USA, Obbligazioni, Materie Prime e Valute con normalizzazione Z-Score.")
@@ -112,7 +116,7 @@ def render_page2():
     cot_db, df_opps = generate_full_cftc_analytics()
 
     # -------------------------------------------------------------------------
-    # 1. TABELLA DELLE OPPORTUNITÀ CONTRARIAN (QUANTASTE THEME)
+    # 1. TABELLA DELLE OPPORTUNITÀ CONTRARIAN
     # -------------------------------------------------------------------------
     st.subheader("⭐ Tabella Opportunità Contrarian & Eccessi Z-Score")
     st.caption("Gli asset contrassegnati da ⭐ evidenziano uno Z-Score estremo (|Z| ≥ 1.85) su base 1 o 3 anni, configurando setup di accumulo contrarian o prese di profitto istituzionali.")
@@ -127,15 +131,13 @@ def render_page2():
     if selected_cat != "Tutte le Categorie":
         df_view = df_view[df_view["Categoria"] == selected_cat]
 
-    st.dataframe(
-        df_view.style.applymap(
-            lambda v: "background-color: rgba(239, 68, 68, 0.25); font-weight: bold;" if "SELL" in str(v)
-            else ("background-color: rgba(16, 185, 129, 0.25); font-weight: bold;" if "BUY" in str(v) else ""),
-            subset=["Bias Contrarian"]
-        ),
-        use_container_width=True,
-        hide_index=True
-    )
+    # Styler compatibile sia con vecchie che nuove versioni di Pandas
+    try:
+        styled_table = df_view.style.map(color_bias, subset=["Bias Contrarian"])
+    except AttributeError:
+        styled_table = df_view.style.applymap(color_bias, subset=["Bias Contrarian"])
+
+    st.dataframe(styled_table, use_container_width=True, hide_index=True)
 
     st.markdown("---")
 
@@ -154,6 +156,7 @@ def render_page2():
         all_assets_flat,
         index=0
     )
+    
     sel_ticker = sel_full.split(" ➔ ")[1]
     asset_data = cot_db[sel_ticker]["df"]
     category_name = cot_db[sel_ticker]["category"]
@@ -161,7 +164,7 @@ def render_page2():
     last_r = asset_data.iloc[-1]
     prev_r = asset_data.iloc[-2]
 
-    # Matrice Tabellare Riepilogativa dell'Asset Selezionato
+    # Scheda Tabellare
     st.markdown(f"#### Scheda di Posizionamento: **{sel_ticker}** (`{category_name}`)")
     
     kpi_matrix = pd.DataFrame({
@@ -201,7 +204,7 @@ def render_page2():
     st.table(kpi_matrix)
 
     # -------------------------------------------------------------------------
-    # 3. GRAFICA COORDINATA PLOTLY 6-PANEL
+    # 3. GRAFICA PLOTLY 6-PANEL COORDINATA
     # -------------------------------------------------------------------------
     fig = make_subplots(
         rows=3, cols=2,
