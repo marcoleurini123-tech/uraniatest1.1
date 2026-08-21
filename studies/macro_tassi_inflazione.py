@@ -7,7 +7,7 @@ from scipy.stats import norm
 from datetime import datetime
 
 # =============================================================================
-# DATASET STORICO MACROECONOMICO USA (1950 - 2026)
+# DATASET STORICO MULTIVARIATO USA (1950 - 2026)
 # =============================================================================
 @st.cache_data(ttl=86400)
 def load_macro_multivariate_series():
@@ -27,22 +27,19 @@ def load_macro_multivariate_series():
         prices = 17.0 * np.exp(np.linspace(0, 6.0, n))
         df_spx = pd.DataFrame({"Date": pd.to_datetime(dates).astype("datetime64[ns]"), "Close": prices})
 
-    # 2. Serie Storiche Macroeconomiche Fondamentali USA (1950 - 2026)
-    # Inflazione CPI YoY
+    # 2. Serie Storiche Macroeconomiche USA (1950 - 2026)
     inf_base = np.interp(
         np.linspace(0, 1, n),
         [0.0, 0.07, 0.15, 0.28, 0.38, 0.42, 0.52, 0.65, 0.76, 0.82, 0.90, 0.94, 0.98, 1.0],
         [1.5, 9.4, 1.2, 5.8, 12.2, 14.8, 4.2, 3.1, 1.8, -2.1, 1.9, 9.1, 3.2, 2.9]
     ) + np.sin(np.linspace(0, 50, n)) * 0.4
 
-    # Fed Funds Effective Rate
     ffr_base = np.interp(
         np.linspace(0, 1, n),
         [0.0, 0.08, 0.18, 0.28, 0.38, 0.42, 0.53, 0.65, 0.77, 0.82, 0.90, 0.94, 0.98, 1.0],
         [1.5, 3.5, 4.0, 8.5, 13.0, 19.1, 8.0, 5.5, 1.0, 0.1, 1.5, 5.33, 4.5, 4.25]
     ) + np.cos(np.linspace(0, 45, n)) * 0.3
 
-    # Unemployment Rate (UNRATE)
     unemp_base = np.interp(
         np.linspace(0, 1, n),
         [0.0, 0.08, 0.18, 0.28, 0.38, 0.43, 0.55, 0.68, 0.78, 0.82, 0.92, 0.94, 0.98, 1.0],
@@ -56,11 +53,8 @@ def load_macro_multivariate_series():
         "Unemployment": np.clip(unemp_base, 3.0, 15.5)
     })
 
-    # Merge deterministico su timestamp mensile
     df_merged = pd.merge_asof(df_macro.sort_values("Date"), df_spx.sort_values("Date"), on="Date", direction="nearest")
     df_merged["Log_Close"] = np.log(df_merged["Close"].replace(0, np.nan))
-    
-    # Rendimenti mensili e drawdown continuo
     df_merged["Monthly_Return"] = df_merged["Close"].pct_change()
     df_merged["Cummax"] = df_merged["Close"].cummax()
     df_merged["Drawdown"] = (df_merged["Close"] - df_merged["Cummax"]) / df_merged["Cummax"]
@@ -68,7 +62,7 @@ def load_macro_multivariate_series():
     return df_merged.dropna().reset_index(drop=True)
 
 # =============================================================================
-# VIEW PRINCIPALE DELLO STUDIO (REPLICA 1:1 QUANT-REA)
+# VIEW PRINCIPALE DELLO STUDIO (REPLICA QUANT-REA)
 # =============================================================================
 def render_tassi_inflazione_view():
     st.markdown(
@@ -93,7 +87,7 @@ def render_tassi_inflazione_view():
     c4.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
     c4.button("Aggiorna", use_container_width=True)
 
-    # Condizione Combinata: Infla > X & Rate > Y & Unemp > Z
+    # Condizione Combinata
     df["Condition_Met"] = (
         (df["Inflation"] > soglia_inf) & 
         (df["Fed_Rate"] > soglia_rate) & 
@@ -102,17 +96,12 @@ def render_tassi_inflazione_view():
 
     cond_label = f"Infla>{soglia_inf:g}% & Rate>{soglia_rate:g}% & Unemp>{soglia_unemp:g}%"
 
-    # -------------------------------------------------------------------------
-    # GRAFICO 1: S&P500 (log) con segmentazione a colori
-    # -------------------------------------------------------------------------
+    # 1. GRAFICO: S&P500 (log) con segmentazione a colori
     fig1 = go.Figure()
-    
-    # Sotto-soglia (Verde)
     df_sotto = df.copy()
     df_sotto.loc[df_sotto["Condition_Met"], "Log_Close"] = np.nan
     fig1.add_trace(go.Scatter(x=df_sotto["Date"], y=df_sotto["Log_Close"], mode="lines", line=dict(color="#10b981", width=2), name="Sotto Soglia"))
 
-    # Sopra-soglia (Rosso)
     df_sopra = df.copy()
     df_sopra.loc[~df_sopra["Condition_Met"], "Log_Close"] = np.nan
     fig1.add_trace(go.Scatter(x=df_sopra["Date"], y=df_sopra["Log_Close"], mode="lines", line=dict(color="#ef4444", width=2), name="Sopra Soglia"))
@@ -126,9 +115,7 @@ def render_tassi_inflazione_view():
     )
     st.plotly_chart(fig1, use_container_width=True)
 
-    # -------------------------------------------------------------------------
-    # GRAFICO 2: Drawdown S&P500 (condizione combinata)
-    # -------------------------------------------------------------------------
+    # 2. GRAFICO: Drawdown S&P500 (condizione combinata)
     fig2 = go.Figure()
     df_dd_sopra = df.copy()
     df_dd_sopra.loc[~df_dd_sopra["Condition_Met"], "Drawdown"] = np.nan
@@ -146,12 +133,10 @@ def render_tassi_inflazione_view():
     )
     st.plotly_chart(fig2, use_container_width=True)
 
-    # -------------------------------------------------------------------------
-    # GRAFICO 3: Performance Annuale S&P500 (%)
-    # -------------------------------------------------------------------------
+    # 3. GRAFICO: Performance Annuale S&P500 (%)
     df_annual = df.set_index("Date").resample("YE").agg({
         "Close": "last",
-        "Condition_Met": lambda x: x.mean() >= 0.5  # Prevalenza della condizione nell'anno
+        "Condition_Met": lambda x: x.mean() >= 0.5
     }).reset_index()
     df_annual["Year"] = df_annual["Date"].dt.year
     df_annual["Annual_Return"] = df_annual["Close"].pct_change() * 100.0
@@ -169,9 +154,7 @@ def render_tassi_inflazione_view():
     )
     st.plotly_chart(fig3, use_container_width=True)
 
-    # -------------------------------------------------------------------------
-    # GRAFICO 4: Inflation, Fed Rate & Unemployment
-    # -------------------------------------------------------------------------
+    # 4. GRAFICO: Inflation, Fed Rate & Unemployment
     fig4 = go.Figure()
     fig4.add_trace(go.Scatter(x=df["Date"], y=df["Inflation"], mode="lines", line=dict(color="#38bdf8", width=1.8), name="Inflation"))
     fig4.add_trace(go.Scatter(x=df["Date"], y=df["Fed_Rate"], mode="lines", line=dict(color="#f97316", width=1.8), name="Fed Funds Rate"))
@@ -185,9 +168,7 @@ def render_tassi_inflazione_view():
     )
     st.plotly_chart(fig4, use_container_width=True)
 
-    # -------------------------------------------------------------------------
-    # GRAFICI 5 & 6: Distribuzione Rendimenti Mensili & Annuali
-    # -------------------------------------------------------------------------
+    # 5 & 6. GRAFICI: Distribuzione Rendimenti Mensili & Annuali
     c_m, c_a = st.columns(2)
 
     with c_m:
@@ -198,7 +179,6 @@ def render_tassi_inflazione_view():
         fig5.add_trace(go.Histogram(x=ret_sopra, name="Mensili Sopra", marker_color="#991b1b", opacity=0.8, nbinsx=35))
         fig5.add_trace(go.Histogram(x=ret_sotto, name="Mensili Sotto", marker_color="#065f46", opacity=0.8, nbinsx=35))
 
-        # Gaussiana di fit
         if len(ret_sopra) > 1 and len(ret_sotto) > 1:
             x_ax = np.linspace(-0.3, 0.3, 100)
             mu_sp, std_sp = norm.fit(ret_sopra)
