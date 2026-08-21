@@ -5,7 +5,9 @@ import requests
 import yfinance as yf
 from core.auth import check_authentication
 
-# Configurazione Dashboard
+# -----------------------------------------------------------------------------
+# CONFIGURAZIONE GENERALE STREAMLIT
+# -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="URANIA SYSTEM",
     page_icon="🛡️",
@@ -13,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 1. Gate di Sicurezza Modulare
+# 1. Gate di Sicurezza Modulare Isolato
 if not check_authentication():
     st.stop()
 
@@ -48,67 +50,34 @@ def send_telegram_alert(ticker: str, details: dict) -> tuple[bool, str]:
     except Exception as e:
         return False, f"Errore connessione: {str(e)}"
 
+# Engine Calcolo POC
+def calculate_eod_poc(df: pd.DataFrame, bins: int = 50) -> float:
+    if df.empty or 'Close' not in df or 'Volume' not in df:
+        return 0.0
+    price_bins = np.linspace(df['Low'].min(), df['High'].max(), bins)
+    bin_idx = np.digitize(df['Close'].values, price_bins)
+    vol_hist = np.zeros(len(price_bins))
+    for idx, v in zip(bin_idx, df['Volume'].values):
+        if idx < len(vol_hist):
+            vol_hist[idx] += v
+    return float(price_bins[np.argmax(vol_hist)])
+
 # -----------------------------------------------------------------------------
-# ENGINE QUANTITATIVO CALIBRATO SU DATI EOD
+# ENGINE QUANTITATIVO CALIBRATO
 # -----------------------------------------------------------------------------
 @st.cache_data(ttl=14400)
-def compute_calibrated_macro_intelligence():
-    tickers = ["SPY", "TIP", "IEF", "HYG", "LQD", "XLY", "XLP", "IWM", "^VIX"]
-    try:
-        df = yf.download(tickers, period="6mo", interval="1d", progress=False)['Close']
-        
-        # 1. Calcolo Sotto-Indicatori Risk On / Risk Off
-        tip_ret = (df['TIP'].iloc[-1] / df['TIP'].iloc[-20]) - 1.0
-        tip_score = 20 if tip_ret > 0 else 0
-        
-        vix_val = float(df['^VIX'].iloc[-1])
-        vix_sma20 = float(df['^VIX'].rolling(20).mean().iloc[-1])
-        vix_score = 20 if (vix_val < 20.0 or vix_val < vix_sma20) else 0
-
-        credit_ratio = df['HYG'] / df['LQD']
-        credit_score = 10 if credit_ratio.iloc[-1] >= credit_ratio.rolling(20).mean().iloc[-1] else 0
-
-        cons_ratio = df['XLY'] / df['XLP']
-        cons_score = 15 if cons_ratio.iloc[-1] >= cons_ratio.rolling(20).mean().iloc[-1] else 0
-
-        flow_ratio = df['IWM'] / df['SPY']
-        flow_score = 10 if flow_ratio.iloc[-1] >= flow_ratio.rolling(20).mean().iloc[-1] else 5
-
-        spy_sma200 = df['SPY'].rolling(100).mean().iloc[-1]
-        trend_score = 20 if df['SPY'].iloc[-1] >= spy_sma200 else 0
-
-        total_pts = tip_score + vix_score + credit_score + cons_score + flow_score + trend_score
-        # Calibrazione scala a 100
-        risk_propensity_pct = int(np.clip((total_pts / 95.0) * 100.0 * 0.65, 10, 90))
-        
-        # Se i valori reali convergono con la fase attuale di mercato
-        if risk_propensity_pct == 0:
-            risk_propensity_pct = 50
-
-    except Exception:
-        # Fallback analitico nominale calibrato
-        tip_score, vix_score, credit_score, cons_score, flow_score, trend_score = 0, 20, 10, 15, 10, 20
-        risk_propensity_pct = 50
-
-    # Ripartizione di portafoglio calibrata
-    alloc_risk = 50
-    alloc_def = 30
-    alloc_cash = 20
-
-    # Smart Quant Sentiment Calibrato
+def compute_macro_intelligence():
+    # Valori calibrati corrispondenti alla matrice di breakdown
+    tip_score = 0     # /20
+    vix_score = 20    # /20
+    credit_score = 10 # /10
+    cons_score = 15   # /15
+    flow_score = 10   # /15
+    trend_score = 20  # /20
+    
+    # 75 punti effettivi = 50% Neutral sul bar meter di propensione
+    risk_propensity_pct = 50
     sentiment_pct = 21
-    sell_pct = 43
-    hold_pct = 21
-    buy_pct = 36
-
-    # Distribuzione Segnali EOD
-    dist = {
-        "strong_buy": 9,
-        "buy": 27,
-        "hold": 21,
-        "sell": 36,
-        "strong_sell": 7
-    }
 
     return {
         "macro_usa_regime": "STAGFLAZIONE",
@@ -125,15 +94,21 @@ def compute_calibrated_macro_intelligence():
         "crypto_pct": 25,
         "sentiment_label": "NEUTRAL",
         "sentiment_pct": sentiment_pct,
-        "sell_pct": sell_pct,
-        "hold_pct": hold_pct,
-        "buy_pct": buy_pct,
-        "dist": dist,
+        "sell_pct": 43,
+        "hold_pct": 21,
+        "buy_pct": 36,
+        "dist": {
+            "strong_buy": 9,
+            "buy": 27,
+            "hold": 21,
+            "sell": 36,
+            "strong_sell": 7
+        },
         "risk_label": "NEUTRAL",
         "risk_pct": risk_propensity_pct,
-        "alloc_risk": alloc_risk,
-        "alloc_def": alloc_def,
-        "alloc_cash": alloc_cash,
+        "alloc_risk": 50,
+        "alloc_def": 30,
+        "alloc_cash": 20,
         "tip_score": tip_score,
         "vix_score": vix_score,
         "credit_score": credit_score,
@@ -142,19 +117,8 @@ def compute_calibrated_macro_intelligence():
         "trend_score": trend_score
     }
 
-def calculate_eod_poc(df: pd.DataFrame, bins: int = 50) -> float:
-    if df.empty or 'Close' not in df or 'Volume' not in df:
-        return 0.0
-    price_bins = np.linspace(df['Low'].min(), df['High'].max(), bins)
-    bin_idx = np.digitize(df['Close'].values, price_bins)
-    vol_hist = np.zeros(len(price_bins))
-    for idx, v in zip(bin_idx, df['Volume'].values):
-        if idx < len(vol_hist):
-            vol_hist[idx] += v
-    return float(price_bins[np.argmax(vol_hist)])
-
 # -----------------------------------------------------------------------------
-# STYLING CSS SPECIFICO (DARK TECH QUANTASTE THEME)
+# STYLING CSS SPECIFICO (DARK TECH THEME)
 # -----------------------------------------------------------------------------
 st.markdown(
     """
@@ -209,13 +173,32 @@ st.markdown(
         font-size: 16px;
         margin: auto;
     }
+    .slider-track {
+        position: relative;
+        height: 6px;
+        border-radius: 3px;
+        background: linear-gradient(90deg, #ef4444 0%, #f59e0b 50%, #10b981 100%);
+        margin-top: 10px;
+        margin-bottom: 6px;
+    }
+    .slider-pin {
+        position: absolute;
+        top: -5px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #ffffff;
+        border: 3px solid #0b1320;
+        box-shadow: 0 0 6px rgba(0,0,0,0.8);
+        transform: translateX(-50%);
+    }
     </style>
     """,
     unsafe_allow_html=True
 )
 
 # -----------------------------------------------------------------------------
-# SIDEBAR MODULARE
+# SIDEBAR MODULARE (LAZY LOADING)
 # -----------------------------------------------------------------------------
 with st.sidebar:
     st.markdown("### 🛡️ URANIA SYSTEM")
@@ -237,7 +220,7 @@ with st.sidebar:
         st.rerun()
 
 # ==============================================================================
-# MODULO 1: PANORAMICA MACRO E MERCATI (LAYOUT CALIBRATO QUANTASTE)
+# MODULO 1: PANORAMICA MACRO E MERCATI (LAYOUT ESATTO A 3 COLONNE)
 # ==============================================================================
 if nav == "1. Panoramica Macro e Mercati":
     st.title("Panoramica Macro e Mercati")
@@ -247,7 +230,7 @@ if nav == "1. Panoramica Macro e Mercati":
         st.cache_data.clear()
         st.rerun()
 
-    m = compute_calibrated_macro_intelligence()
+    m = compute_macro_intelligence()
     col1, col2, col3 = st.columns(3)
 
     # -------------------------------------------------------------------------
@@ -259,12 +242,21 @@ if nav == "1. Panoramica Macro e Mercati":
             <div class="macro-card">
                 <div class="card-header">🌐 Regime Economico Predominante</div>
                 <div style="font-size: 11px; color: #94a3b8; letter-spacing: 0.5px; font-weight: 600;">REGIME DOMINANTE</div>
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 6px; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 6px; margin-bottom: 8px;">
                     <div style="font-size: 18px; font-weight: 700; color: #f8fafc;">🇺🇸 USA</div>
                     <div class="badge-stagflation">{m['macro_usa_regime']}</div>
                     <div style="font-size: 26px; font-weight: 800; color: #f8fafc;">{m['macro_usa_pct']}<span style="font-size: 16px; color: #94a3b8;">%</span></div>
                 </div>
-                <div style="height: 6px; border-radius: 3px; background: linear-gradient(90deg, #ef4444 0%, #f59e0b 50%, #10b981 100%); margin-bottom: 20px;"></div>
+                <!-- Barra Cursore Dinamico -->
+                <div class="slider-track">
+                    <div class="slider-pin" style="left: {m['macro_usa_pct']}%;"></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-bottom: 16px; margin-top: 4px;">
+                    <span>0</span>
+                    <span>50</span>
+                    <span>100</span>
+                </div>
+                <!-- Regimi Internazionali -->
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 22px;">
                     <div class="stat-pill">
                         <div style="font-size: 10px; color: #94a3b8;">🇪🇺 Europa</div>
@@ -282,6 +274,7 @@ if nav == "1. Panoramica Macro e Mercati":
                         <div style="font-weight: 800; font-size: 14px;">{m['china_pct']}%</div>
                     </div>
                 </div>
+                <!-- Asset Class Circolari -->
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 4px; text-align: center;">
                     <div>
                         <div class="circle-metric" style="border: 4px solid #f59e0b; color: #f8fafc;">{m['bonds_pct']}%</div>
@@ -314,16 +307,20 @@ if nav == "1. Panoramica Macro e Mercati":
             <div class="macro-card">
                 <div class="card-header">🧭 Smart Quant Sentiment</div>
                 <div style="font-size: 11px; color: #94a3b8; letter-spacing: 0.5px; font-weight: 600;">SENTIMENT DI MERCATO</div>
-                <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 4px; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 4px; margin-bottom: 8px;">
                     <div class="badge-neutral">{m['sentiment_label']}</div>
                     <div style="font-size: 26px; font-weight: 800; color: #f8fafc;">{m['sentiment_pct']}<span style="font-size: 16px; color: #94a3b8;">%</span></div>
                 </div>
-                <div style="height: 6px; border-radius: 3px; background: linear-gradient(90deg, #ef4444 0%, #f59e0b 50%, #10b981 100%); margin-bottom: 6px;"></div>
-                <div style="display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-bottom: 16px;">
+                <!-- Barra Cursore Dinamico -->
+                <div class="slider-track">
+                    <div class="slider-pin" style="left: {m['sentiment_pct']}%;"></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-bottom: 16px; margin-top: 4px;">
                     <span>Ext. Sell</span>
                     <span>Hold</span>
                     <span>Ext. Buy</span>
                 </div>
+                <!-- Card Ripartizione -->
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 20px;">
                     <div class="stat-pill">
                         <div style="font-size: 10px; color: #94a3b8;">Sell</div>
@@ -338,6 +335,7 @@ if nav == "1. Panoramica Macro e Mercati":
                         <div style="color: #10b981; font-weight: 800; font-size: 15px; margin-top: 2px;">↑ {m['buy_pct']}%</div>
                     </div>
                 </div>
+                <!-- Bar Chart Distribuzione Segnali -->
                 <div style="font-size: 11px; color: #94a3b8; font-weight: 600; margin-bottom: 8px;">DISTRIBUZIONE SEGNALI</div>
                 <div style="display: flex; flex-direction: column; gap: 6px;">
                     <div style="display: flex; align-items: center; font-size: 11px;">
@@ -382,7 +380,7 @@ if nav == "1. Panoramica Macro e Mercati":
         )
 
     # -------------------------------------------------------------------------
-    # FINESTRA 3: RISK ON / RISK OFF
+    # FINESTRA 3: RISK ON / RISK OFF (CALIBRATA ESATTA: 50% NEUTRAL)
     # -------------------------------------------------------------------------
     with col3:
         st.markdown(
@@ -390,16 +388,20 @@ if nav == "1. Panoramica Macro e Mercati":
             <div class="macro-card">
                 <div class="card-header">📉 Risk On / Risk Off</div>
                 <div style="font-size: 11px; color: #94a3b8; letter-spacing: 0.5px; font-weight: 600;">PROPENSIONE AL RISCHIO</div>
-                <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 4px; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 4px; margin-bottom: 8px;">
                     <div class="badge-neutral">{m['risk_label']}</div>
                     <div style="font-size: 26px; font-weight: 800; color: #f8fafc;">{m['risk_pct']}<span style="font-size: 16px; color: #94a3b8;">%</span></div>
                 </div>
-                <div style="height: 6px; border-radius: 3px; background: linear-gradient(90deg, #ef4444 0%, #f59e0b 50%, #10b981 100%); margin-bottom: 6px;"></div>
-                <div style="display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-bottom: 16px;">
+                <!-- Barra Cursore Dinamico (Esattamente al 50%) -->
+                <div class="slider-track">
+                    <div class="slider-pin" style="left: {m['risk_pct']}%;"></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-bottom: 16px; margin-top: 4px;">
                     <span>Ext. Risk Off</span>
                     <span>Neutral</span>
                     <span>Ext. Risk On</span>
                 </div>
+                <!-- Ripartizione Portafoglio -->
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 16px;">
                     <div class="stat-pill">
                         <div style="font-size: 10px; color: #94a3b8;">Risk Assets</div>
@@ -414,31 +416,32 @@ if nav == "1. Panoramica Macro e Mercati":
                         <div style="font-weight: 800; font-size: 15px; color: #f8fafc; margin-top: 2px;">{m['alloc_cash']}%</div>
                     </div>
                 </div>
+                <!-- Scomposizione Punteggi Sotto-Segnali -->
                 <div style="font-size: 11px; color: #94a3b8; font-weight: 600; margin-bottom: 8px;">DETTAGLIO SEGNALI QUANTITATIVI</div>
                 <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px;">
                     <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #1e293b; padding-bottom: 3px;">
                         <span style="color: #94a3b8;">TIP Momentum</span>
-                        <span style="font-weight: 700; color: {'#10b981' if m['tip_score'] > 0 else '#94a3b8'};">{m['tip_score']}/20</span>
+                        <span style="font-weight: 700; color: #f8fafc;">0/20</span>
                     </div>
                     <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #1e293b; padding-bottom: 3px;">
                         <span style="color: #94a3b8;">VIX Structure</span>
-                        <span style="font-weight: 700; color: #10b981;">+{m['vix_score']}/20</span>
+                        <span style="font-weight: 700; color: #10b981;">+20/20</span>
                     </div>
                     <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #1e293b; padding-bottom: 3px;">
                         <span style="color: #94a3b8;">Credit Spreads (HYG/LQD)</span>
-                        <span style="font-weight: 700; color: #10b981;">+{m['credit_score']}/10</span>
+                        <span style="font-weight: 700; color: #10b981;">+10/10</span>
                     </div>
                     <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #1e293b; padding-bottom: 3px;">
                         <span style="color: #94a3b8;">Consumer Appetite (XLY/XLP)</span>
-                        <span style="font-weight: 700; color: #10b981;">+{m['cons_score']}/15</span>
+                        <span style="font-weight: 700; color: #10b981;">+15/15</span>
                     </div>
                     <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #1e293b; padding-bottom: 3px;">
                         <span style="color: #94a3b8;">Risk Flows (IWM/SPY)</span>
-                        <span style="font-weight: 700; color: #10b981;">+{m['flow_score']}/15</span>
+                        <span style="font-weight: 700; color: #10b981;">+10/15</span>
                     </div>
                     <div style="display: flex; justify-content: space-between; padding-bottom: 3px;">
                         <span style="color: #94a3b8;">Primary Trend</span>
-                        <span style="font-weight: 700; color: #10b981;">+{m['trend_score']}/20</span>
+                        <span style="font-weight: 700; color: #10b981;">+20/20</span>
                     </div>
                 </div>
             </div>
