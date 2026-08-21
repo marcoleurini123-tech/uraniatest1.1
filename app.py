@@ -5,9 +5,6 @@ import requests
 import yfinance as yf
 import os
 
-# -----------------------------------------------------------------------------
-# CONFIGURAZIONE STREAMLIT
-# -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="URANIA SYSTEM",
     page_icon="🛡️",
@@ -15,9 +12,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# -----------------------------------------------------------------------------
-# CREDENZIALI TELEGRAM CANALE URANIA
-# -----------------------------------------------------------------------------
+# Credenziali Telegram Canale URANIA
 BOT_TOKEN = "8829669929:AAFHyp1WeBtpebQD-xqua-MsNyq8S_r8uQ0"
 CHAT_ID = "-1004435512748"
 
@@ -29,7 +24,7 @@ def send_telegram_alert(ticker: str, details: dict) -> tuple[bool, str]:
         f"📈 <b>Protocollo:</b> {details.get('name', 'Setup Quant')}\n"
         f"💵 <b>Prezzo EOD:</b> ${details.get('price', 0.0):.2f}\n"
         f"📉 <b>Drawdown ATH:</b> {details.get('drawdown', 0.0):.1f}%\n"
-        f"🎯 <b>POC Volume:</b> ${details.get('poc', 0.0):.2f} ({details.get('poc_dist', 0.0):+.2f}%)\n"
+        f"🎯 <b>POC Volume Base:</b> ${details.get('poc', 0.0):.2f} ({details.get('poc_dist', 0.0):+.2f}%)\n"
         f"🎯 <b>Target Superiore:</b> ${details.get('target', 0.0):.2f}\n"
         f"⚖️ <b>Rapporto R/R:</b> {details.get('rr_ratio', 0.0):.2f} : 1\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -46,9 +41,6 @@ def send_telegram_alert(ticker: str, details: dict) -> tuple[bool, str]:
     except Exception as e:
         return False, f"Errore connessione: {str(e)}"
 
-# -----------------------------------------------------------------------------
-# ENGINE MATEMATICO EOD (POC & VOLUME PROFILE)
-# -----------------------------------------------------------------------------
 def calculate_eod_poc(df: pd.DataFrame, bins: int = 50) -> float:
     if df.empty or 'Close' not in df or 'Volume' not in df:
         return 0.0
@@ -60,64 +52,58 @@ def calculate_eod_poc(df: pd.DataFrame, bins: int = 50) -> float:
             vol_hist[idx] += v
     return float(price_bins[np.argmax(vol_hist)])
 
-# -----------------------------------------------------------------------------
-# AUTENTICAZIONE CON RENDERING NATIVO LOGO
-# -----------------------------------------------------------------------------
+# Session State Autenticazione
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
+# Schermata di Accesso
 if not st.session_state.authenticated:
     st.markdown(
         """
         <style>
         .stApp {
             background-color: #030712 !important;
-            background-image: radial-gradient(circle at 50% 35%, #0f172a 0%, #030712 100%) !important;
+            background-image: radial-gradient(circle at 50% 30%, #0f172a 0%, #030712 100%) !important;
         }
-        div[data-testid="stVerticalBlock"] > div:has(div.login-box) {
-            display: flex;
-            justify-content: center;
-        }
-        .login-box {
+        .login-card {
             background: rgba(15, 23, 42, 0.95);
-            border: 1px solid rgba(212, 175, 55, 0.4);
-            border-radius: 18px;
-            padding: 30px 25px;
+            border: 1px solid rgba(212, 175, 55, 0.35);
+            border-radius: 16px;
+            padding: 30px;
             text-align: center;
-            box-shadow: 0 12px 48px rgba(0, 0, 0, 0.8);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
         }
         .brand-title {
             font-size: 32px;
             font-weight: 900;
             letter-spacing: 5px;
             color: #f8fafc;
-            margin-top: 10px;
-            margin-bottom: 2px;
+            margin: 5px 0 0 0;
         }
         .brand-motto {
             font-size: 11px;
-            letter-spacing: 3.5px;
+            letter-spacing: 3px;
             color: #d4af37;
             font-weight: 700;
-            margin-bottom: 15px;
+            margin-bottom: 12px;
         }
         </style>
         """,
         unsafe_allow_html=True
     )
 
-    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
     _, col_center, _ = st.columns([1, 1.4, 1])
 
     with col_center:
-        st.markdown('<div class="login-box">', unsafe_allow_html=True)
+        st.markdown('<div class="login-card">', unsafe_allow_html=True)
         if os.path.exists("urania_logo.png"):
-            col_img1, col_img2, col_img3 = st.columns([1, 1.8, 1])
-            with col_img2:
+            c_l, c_mid, c_r = st.columns([1, 2, 1])
+            with c_mid:
                 st.image("urania_logo.png", use_container_width=True)
         else:
-            st.markdown('<div style="font-size: 48px;">🛡️</div>', unsafe_allow_html=True)
-        
+            st.markdown('<div style="font-size: 48px; margin-bottom: 10px;">🛡️</div>', unsafe_allow_html=True)
+
         st.markdown(
             """
             <div class="brand-title">URANIA</div>
@@ -130,18 +116,16 @@ if not st.session_state.authenticated:
             unsafe_allow_html=True
         )
         st.markdown("<br>", unsafe_allow_html=True)
-        pwd = st.text_input("Password di Accesso:", type="password", placeholder="••••••••••••")
+        pwd_input = st.text_input("Password di Accesso:", type="password", placeholder="••••••••••••")
         if st.button("SBLOCCA TERMINALE", use_container_width=True):
-            if pwd == "Serafino12?#":
+            if pwd_input == "Serafino12?#":
                 st.session_state.authenticated = True
                 st.rerun()
             else:
                 st.error("Credenziali non valide.")
     st.stop()
 
-# -----------------------------------------------------------------------------
-# SIDEBAR MODULARE (LAZY LOADING)
-# -----------------------------------------------------------------------------
+# Sidebar di Navigazione
 with st.sidebar:
     st.markdown("### 🛡️ URANIA SYSTEM")
     st.caption("Macro Quantitative Terminal • EOD Engine")
@@ -161,25 +145,22 @@ with st.sidebar:
         st.session_state.authenticated = False
         st.rerun()
 
-# ==============================================================================
-# MODULO 1: DASHBOARD MACRO, LIQUIDITÀ & LE 3 FINESTRE SENTIMENT
-# ==============================================================================
+# -----------------------------------------------------------------------------
+# MODULO 1: MACRO REGIMES & 3 FINESTRE SENTIMENT
+# -----------------------------------------------------------------------------
 if nav == "1. Dashboard Macro & Sentiment":
     st.title("🌐 Macroeconomic Regimes & Market Sentiment")
     st.caption("Monitoraggio integrato dei 7 Scenari Macro, Liquidità Globale e i 3 Pilastri di Sentiment.")
     st.markdown("---")
 
-    # 1. Regimi Macro & Liquidità Fed
     st.subheader("🏛️ Regimi Macroeconomici & Liquidità Netta Fed")
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Regime Macro Attivo", "Goldilocks / Disinflazione", "+0.42 pt")
-    m2.metric("Net Fed Liquidity (WALCL-TGA-RRP)", "$6.12T", "+$24B w/w")
+    m2.metric("Net Fed Liquidity", "$6.12T", "+$24B w/w")
     m3.metric("Treasury General Account", "$748B", "-$12B")
     m4.metric("Reverse Repo (RRP)", "$320B", "-$8B")
 
     st.markdown("---")
-
-    # 2. Le 3 Finestre del Sentiment di Mercato
     st.subheader("🧭 Le 3 Finestre del Sentiment di Mercato")
     s1, s2, s3 = st.columns(3)
 
@@ -203,7 +184,7 @@ if nav == "1. Dashboard Macro & Sentiment":
             <div style="background: rgba(18,26,47,0.7); padding: 18px; border-radius: 10px; border-left: 4px solid #f59e0b;">
                 <h4 style="margin:0; color:#f59e0b;">2. AAII Bull / Bear Spread</h4>
                 <p style="font-size: 28px; font-weight: bold; margin: 8px 0 0 0; color:#f8fafc;">+14.2% <span style="font-size:16px; color:#f59e0b;">(Bullish Bias)</span></p>
-                <small style="color:#94a3b8;">Posizionamento e aspettative investitori retail.</small>
+                <small style="color:#94a3b8;">Posizionamento sondaggio investitori retail.</small>
             </div>
             """,
             unsafe_allow_html=True
@@ -226,7 +207,7 @@ if nav == "1. Dashboard Macro & Sentiment":
         st.caption("• < 0.65: Eccesso Ottimismo | 0.85-1.0: Neutrale | > 1.10: Panico / Hedge")
 
     st.markdown("---")
-    st.subheader("📊 Matrice di Raccordo dei 7 Scenari Macro")
+    st.subheader("📊 Matrice dei 7 Scenari Macro")
     st.dataframe(pd.DataFrame({
         "Scenario": [
             "1. Goldilocks (Espansione + Disinflazione)",
@@ -258,37 +239,32 @@ if nav == "1. Dashboard Macro & Sentiment":
         ]
     }), use_container_width=True, hide_index=True)
 
-# ==============================================================================
+# -----------------------------------------------------------------------------
 # MODULO 2: Z-SCORE & COT LAB
-# ==============================================================================
+# -----------------------------------------------------------------------------
 elif nav == "2. Z-Score & COT Lab":
     st.title("📊 Z-Score Normalization & COT Positioning Lab")
     st.caption("Analisi quantitativa dei flussi istituzionali (CFTC) con normalizzazione Z-Score a 1/3/5 anni.")
-    st.markdown("---")
-
     c1, c2 = st.columns([1, 2])
     with c1:
         asset = st.selectbox("Seleziona Sottostante / Future:", ["Cocoa", "Coffee", "Natural Gas", "Crude Oil", "Gold", "S&P 500", "US 10Y Note"])
         lookback = st.radio("Finestra di Normalizzazione Z-Score:", ["1 Anno (52w)", "3 Anni (156w)", "5 Anni (260w)"])
-    
     with c2:
-        st.info(f"Asset: **{asset}** | Lookback: **{lookback}**")
+        st.info(f"Asset selezionato: **{asset}** | Lookback: **{lookback}**")
         st.markdown(
             """
             * **Commercials (Hedgers):** Monitoraggio delle coperture reali dei produttori.
             * **Non-Commercials (Large Speculators):** Tracciamento dei massimi/minimi di trend.
-            * **Divergenza Z-Score:** Evidenzia letture estreme ($\ge +2.0$ o $\le -2.0$) per anticipare rotazioni contrarian.
+            * **Divergenza Z-Score:** Evidenzia letture estreme ($\ge +2.0$ o $\le -2.0$) per rotazioni di lungo periodo.
             """
         )
 
-# ==============================================================================
-# MODULO 3: QUANT LAB (ARCHIVIO STUDI)
-# ==============================================================================
+# -----------------------------------------------------------------------------
+# MODULO 3: QUANT LAB
+# -----------------------------------------------------------------------------
 elif nav == "3. Quant Lab (Archivio Studi)":
     st.title("🔬 Quantitative Studies & Historical Catalog")
-    st.caption("Archivio modulare dei paper statistici, protocolli operativi e simulazioni EOD.")
-    st.markdown("---")
-    
+    st.caption("Archivio modulare dei paper statistici e backtest proprietari.")
     st.markdown(
         """
         * 📁 **Studio 01:** *Efficienza statistica del POC Volume Profile su drawdown > 40% (2010–2026)*
@@ -297,9 +273,9 @@ elif nav == "3. Quant Lab (Archivio Studi)":
         """
     )
 
-# ==============================================================================
-# MODULO 4: PROTOCOL SCREENER & TELEGRAM RADAR
-# ==============================================================================
+# -----------------------------------------------------------------------------
+# MODULO 4: PROTOCOL SCREENER & TELEGRAM
+# -----------------------------------------------------------------------------
 elif nav == "4. Protocol Screener & Telegram":
     st.title("🎯 Protocol Screener & Telegram Radar")
     st.caption("Scansione batch EOD dell'universo azionario e dispatching degli alert sul canale Telegram.")
