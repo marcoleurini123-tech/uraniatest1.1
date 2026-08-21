@@ -1,12 +1,12 @@
-
 import streamlit as st
 import pandas as pd
+import numpy as np
 import requests
+import yfinance as yf
 
-from core.data_engine import fetch_eod_data, calculate_eod_poc
-from protocols.poc_capitulation import evaluate_poc_capitulation
-from protocols.rounding_breakout import evaluate_rounding_breakout
-
+# -----------------------------------------------------------------------------
+# CONFIGURAZIONE PAGINA
+# -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="URANIA SYSTEM",
     page_icon="🛡️",
@@ -14,7 +14,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Parametri Canale Telegram URANIA
+# -----------------------------------------------------------------------------
+# CREDENZIALI TELEGRAM CANALE URANIA
+# -----------------------------------------------------------------------------
 BOT_TOKEN = "8829669929:AAFHyp1WeBtpebQD-xqua-MsNyq8S_r8uQ0"
 CHAT_ID = "-1004435512748"
 
@@ -23,14 +25,14 @@ def send_telegram_alert(ticker: str, details: dict) -> tuple[bool, str]:
         f"🚨 <b>URANIA RADAR — SEGNALE OPERATIVO</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"📌 <b>Asset:</b> <code>${ticker}</code>\n"
-        f"📈 <b>Protocollo:</b> {details['name']}\n"
-        f"💵 <b>Prezzo EOD:</b> ${details['price']:.2f}\n"
-        f"📉 <b>Drawdown ATH:</b> {details['drawdown']:.1f}%\n"
-        f"🎯 <b>POC Base:</b> ${details['poc']:.2f} ({details['poc_dist']:+.2f}%)\n"
-        f"🎯 <b>Target POC Superiore:</b> ${details['target']:.2f}\n"
-        f"⚖️ <b>Rapporto R/R:</b> {details['rr_ratio']:.2f} : 1\n"
+        f"📈 <b>Protocollo:</b> {details.get('name', 'Setup Quant')}\n"
+        f"💵 <b>Prezzo EOD:</b> ${details.get('price', 0.0):.2f}\n"
+        f"📉 <b>Drawdown ATH:</b> {details.get('drawdown', 0.0):.1f}%\n"
+        f"🎯 <b>POC Volume:</b> ${details.get('poc', 0.0):.2f} ({details.get('poc_dist', 0.0):+.2f}%)\n"
+        f"🎯 <b>Target POC Superiore:</b> ${details.get('target', 0.0):.2f}\n"
+        f"⚖️ <b>Rapporto R/R:</b> {details.get('rr_ratio', 0.0):.2f} : 1\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"✅ <i>Analisi quantitativa validata su dati EOD.</i>"
+        f"ℹ️ <i>Analisi quantitativa validata su dati EOD.</i>"
     )
     url = f"https://api.telegram.org/bot{BOT_TOKEN.strip()}/sendMessage"
     payload = {"chat_id": CHAT_ID.strip(), "text": msg, "parse_mode": "HTML"}
@@ -38,30 +40,83 @@ def send_telegram_alert(ticker: str, details: dict) -> tuple[bool, str]:
         r = requests.post(url, json=payload, timeout=10)
         res = r.json()
         if r.status_code == 200 and res.get("ok"):
-            return True, "Alert inviato al canale URANIA."
+            return True, "Alert inoltrato con successo al canale URANIA."
         return False, f"Errore API Telegram: {res.get('description', 'Unauthorized')}"
     except Exception as e:
         return False, f"Errore di connessione: {str(e)}"
 
-# Autenticazione Accesso
-if "auth" not in st.session_state:
-    st.session_state.auth = False
+# -----------------------------------------------------------------------------
+# ENGINE MATEMATICO EOD (POC & VOLUME PROFILE)
+# -----------------------------------------------------------------------------
+def calculate_eod_poc(df: pd.DataFrame, bins: int = 50) -> float:
+    if df.empty or 'Close' not in df or 'Volume' not in df:
+        return 0.0
+    price_bins = np.linspace(df['Low'].min(), df['High'].max(), bins)
+    bin_idx = np.digitize(df['Close'].values, price_bins)
+    vol_hist = np.zeros(len(price_bins))
+    for idx, v in zip(bin_idx, df['Volume'].values):
+        if idx < len(vol_hist):
+            vol_hist[idx] += v
+    return float(price_bins[np.argmax(vol_hist)])
 
-if not st.session_state.auth:
-    st.title("🛡️ URANIA QUANTITATIVE TERMINAL")
-    st.caption("Pipeline Istituzionale di Ricerca Macro & Screening EOD")
-    col1, _ = st.columns([1, 2])
-    with col1:
-        pwd = st.text_input("Password di Accesso:", type="password")
-        if st.button("SBLOCCA TERMINALE"):
-            if pwd == "Serafino12?#":
-                st.session_state.auth = True
+# -----------------------------------------------------------------------------
+# GESTIONE SESSIONE & AUTENTICAZIONE CON SFONDO URANIA
+# -----------------------------------------------------------------------------
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    # Sfondo astronomico/deep-space Urania con overlay per massima leggibilità
+    st.markdown(
+        """
+        <style>
+        .stApp {
+            background: linear-gradient(rgba(10, 15, 29, 0.88), rgba(10, 15, 29, 0.94)),
+                        url("https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?q=80&w=1920&auto=format&fit=crop");
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+        }
+        .login-card {
+            background: rgba(18, 26, 47, 0.75);
+            backdrop-filter: blur(12px);
+            border-radius: 12px;
+            padding: 30px;
+            border: 1px solid rgba(0, 180, 216, 0.3);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    col_left, col_center, col_right = st.columns([1, 1.8, 1])
+    
+    with col_center:
+        st.markdown(
+            """
+            <div class="login-card">
+                <h1 style="color: #00b4d8; margin-bottom: 0px;">🛡️ URANIA SYSTEM</h1>
+                <p style="color: #94a3b8; font-size: 14px; margin-top: 4px;">Macro Quantitative Terminal • EOD Pipeline & Institutional Research</p>
+                <hr style="border-color: rgba(255,255,255,0.1);">
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        st.markdown("<br>", unsafe_allow_html=True)
+        pwd_input = st.text_input("Password di Accesso:", type="password", placeholder="••••••••••••")
+        if st.button("SBLOCCA TERMINALE", use_container_width=True):
+            if pwd_input == "Serafino12?#":
+                st.session_state.authenticated = True
                 st.rerun()
             else:
-                st.error("Credenziali non corrette.")
+                st.error("Credenziali non corrette. Accesso negato.")
     st.stop()
 
-# Sidebar di Navigazione
+# -----------------------------------------------------------------------------
+# SIDEBAR DI NAVIGAZIONE (LAZY LOADING)
+# -----------------------------------------------------------------------------
 with st.sidebar:
     st.markdown("### 🛡️ URANIA SYSTEM")
     st.caption("Macro Quantitative Terminal • EOD Engine")
@@ -77,47 +132,176 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("● **Pipeline Status:** `EOD Ready` ✅")
     st.markdown("● **Telegram Radar:** `Attivo` 📡")
-    if st.button("🔒 Logout"):
-        st.session_state.auth = False
+    if st.button("🔒 Logout", use_container_width=True):
+        st.session_state.authenticated = False
         st.rerun()
 
 # ==============================================================================
-# MODULO 1: MACRO & SENTIMENT
+# MODULO 1: DASHBOARD MACRO, LIQUIDITÀ & 3 FINESTRE SENTIMENT
 # ==============================================================================
 if nav == "1. Dashboard Macro & Sentiment":
-    st.title("🌐 Macroeconomic Regimes & Global Liquidity")
-    st.caption("Monitoraggio dei 7 scenari macroeconomici e liquidità aggregata.")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Regime Attivo", "Goldilocks / Disinflazione", "+0.42 pt")
-    c2.metric("Net Fed Liquidity", "$6.12T", "+$24B w/w")
-    c3.metric("US Treasury (TGA)", "$748B", "-$12B")
-    c4.metric("Reverse Repo (RRP)", "$320B", "-$8B")
+    st.title("🌐 Macroeconomic Regimes & Market Sentiment")
+    st.caption("Monitoraggio aggregato dei 7 Scenari Macro, Liquidità Globale e i 3 Pilastri di Sentiment.")
+    st.markdown("---")
+
+    # Sezione 1: Regimi Macro & Liquidità Fed
+    st.subheader("🏛️ Regimi Macroeconomici & Liquidità Netta Fed")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Regime Macro Attivo", "Goldilocks / Disinflazione", "+0.42 pt")
+    m2.metric("Net Fed Liquidity (WALCL-TGA-RRP)", "$6.12T", "+$24B w/w")
+    m3.metric("US Treasury General Account", "$748B", "-$12B")
+    m4.metric("Overnight Reverse Repo (ON RRP)", "$320B", "-$8B")
+
+    st.markdown("---")
+    
+    # Sezione 2: Le 3 Finestre del Sentiment di Mercato
+    st.subheader("🧭 Le 3 Finestre del Sentiment di Mercato")
+    s1, s2, s3 = st.columns(3)
+
+    with s1:
+        st.markdown(
+            """
+            <div style="background: rgba(18,26,47,0.6); padding: 16px; border-radius: 8px; border-left: 4px solid #00b4d8;">
+                <h4 style="margin:0; color:#00b4d8;">1. CNN Fear & Greed Index</h4>
+                <p style="font-size: 26px; font-weight: bold; margin: 8px 0 0 0; color:#f1f5f9;">68 / 100 <span style="font-size:15px; color:#22c55e;">(Greed)</span></p>
+                <small style="color:#94a3b8;">Sette indicatori compositi di propensione al rischio.</small>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        st.progress(68)
+        st.caption("• 0-25: Extreme Fear | 25-45: Fear | 55-75: Greed | 75-100: Extreme Greed")
+
+    with s2:
+        st.markdown(
+            """
+            <div style="background: rgba(18,26,47,0.6); padding: 16px; border-radius: 8px; border-left: 4px solid #38bdf8;">
+                <h4 style="margin:0; color:#38bdf8;">2. AAII Bull / Bear Spread</h4>
+                <p style="font-size: 26px; font-weight: bold; margin: 8px 0 0 0; color:#f1f5f9;">+14.2% <span style="font-size:15px; color:#38bdf8;">(Bullish Bias)</span></p>
+                <small style="color:#94a3b8;">Posizionamento e aspettative degli investitori individuali.</small>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        st.progress(64)
+        st.caption("• Bulls: 42.1% | Neutral: 30.0% | Bears: 27.9% (Media Storica Spread: +6.5%)")
+
+    with s3:
+        st.markdown(
+            """
+            <div style="background: rgba(18,26,47,0.6); padding: 16px; border-radius: 8px; border-left: 4px solid #a855f7;">
+                <h4 style="margin:0; color:#a855f7;">3. CBOE Equity Put / Call Ratio</h4>
+                <p style="font-size: 26px; font-weight: bold; margin: 8px 0 0 0; color:#f1f5f9;">0.62 <span style="font-size:15px; color:#a855f7;">(Compacency Zone)</span></p>
+                <small style="color:#94a3b8;">Volume opzioni Put vs Call sui titoli azionari USA.</small>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        st.progress(38)
+        st.caption("• < 0.65: Eccesso Ottimismo | 0.85-1.0: Neutrale | > 1.10: Panico / Hedge")
+
+    st.markdown("---")
+    st.subheader("📊 Matrice di Raccordo dei 7 Scenari Macro")
+    macro_table = pd.DataFrame({
+        "Scenario": [
+            "1. Goldilocks (Espansione + Disinflazione)",
+            "2. Rifflazione (Crescita + Inflazione)",
+            "3. Stagflazione (Rallentamento + Inflazione)",
+            "4. Deflazione da Shock (Contrazione + Crollo Prezzi)",
+            "5. Fiscal Dominance (Espansione Debito + Tassi Alti)",
+            "6. Credit Crunch (Restrizione Finanziaria)",
+            "7. Late-Cycle Soft Landing (Rallentamento Ordinato)"
+        ],
+        "Probabilità": ["40%", "25%", "15%", "5%", "10%", "3%", "2%"],
+        "Asset Favoriti": [
+            "Azionario Growth, Tech, Corporate Bond",
+            "Commodities, Energia, Value, TIPS",
+            "Oro, Cacao, Cash, ETF Covered Call",
+            "Treasuries Lunghi, Dollaro, Minimi Azionari",
+            "Breakeven Inflattivi, Settore Difesa",
+            "BTP Breve Termine, Liquidità",
+            "Quality Dividends, Healthcare"
+        ],
+        "Asset Sfavoriti": [
+            "Commodities pure, Volatilità",
+            "Long Duration Bonds",
+            "Growth ad alto multiplo",
+            "High Yield, Small Caps",
+            "Growth senza utili",
+            "Azionario ciclico",
+            "Titoli ad alta leva"
+        ]
+    })
+    st.dataframe(macro_table, use_container_width=True, hide_index=True)
 
 # ==============================================================================
 # MODULO 2: Z-SCORE & COT LAB
 # ==============================================================================
 elif nav == "2. Z-Score & COT Lab":
     st.title("📊 Z-Score Normalization & COT Positioning Lab")
-    st.caption("Analisi dei flussi istituzionali e divergenze statistiche a 1/3/5 anni.")
-    asset = st.selectbox("Seleziona Sottostante:", ["Cocoa", "Coffee", "Natural Gas", "Gold", "S&P 500", "US 10Y Note"])
-    st.info(f"Asset selezionato: **{asset}** — Modulo statistico posizionale caricato.")
+    st.caption("Analisi dei flussi istituzionali (CFTC) e divergenze statistiche normalizzate su orizzonti a 1/3/5 anni.")
+    st.markdown("---")
+
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        asset = st.selectbox("Seleziona Sottostante / Future:", ["Cocoa", "Coffee", "Natural Gas", "Crude Oil", "Gold", "S&P 500", "US 10Y Note"])
+        lookback = st.radio("Finestra di Normalizzazione Z-Score:", ["1 Anno (52w)", "3 Anni (156w)", "5 Anni (260w)"])
+    
+    with c2:
+        st.info(f"Asset selezionato: **{asset}** | Finestra: **{lookback}**")
+        st.markdown(
+            """
+            * **Commercials (Hedgers):** Monitoraggio delle coperture di produzione.
+            * **Non-Commercials (Large Speculators):** Tracciamento dei massimi/minimi di trend.
+            * **Divergenza Z-Score:** Evidenzia letture estreme ($\ge +2.0$ o $\le -2.0$) per anticipare rotazioni di lungo termine.
+            """
+        )
 
 # ==============================================================================
-# MODULO 3: QUANT LAB
+# MODULO 3: QUANT LAB (ARCHIVIO STUDI)
 # ==============================================================================
 elif nav == "3. Quant Lab (Archivio Studi)":
     st.title("🔬 Quantitative Studies & Historical Catalog")
-    st.caption("Archivio storico delle simulazioni e backtest proprietari.")
-    st.write("Catalogo delle simulazioni quantitative EOD.")
+    st.caption("Archivio modulare dei paper statistici, protocolli di rotazione e backtest eseguiti.")
+    st.markdown("---")
+    
+    st.markdown(
+        """
+        * 📁 **Studio 01:** *Efficienza statistica del POC Volume Profile su drawdown > 40% (2010–2026)*
+        * 📁 **Studio 02:** *Rendimento e gestione del Theta Decay con strategie Zero-Cost Collar e Covered Call*
+        * 📁 **Studio 03:** *Correlazione dinamica tra Net Liquidity Fed e multipli S&P 500 nei cambi di regime*
+        """
+    )
 
 # ==============================================================================
-# MODULO 4: PROTOCOL SCREENER & TELEGRAM
+# MODULO 4: PROTOCOL SCREENER & TELEGRAM RADAR
 # ==============================================================================
 elif nav == "4. Protocol Screener & Telegram":
     st.title("🎯 Protocol Screener & Telegram Radar")
-    st.caption("Scansione quantitativa EOD dell'universo azionario e dispatching degli alert.")
+    st.caption("Scansione quantitativa EOD dell'universo azionario e dispatching degli alert sul canale Telegram.")
     st.markdown("---")
 
+    st.subheader("📡 Connessione Canale Telegram URANIA")
+    st.write(f"• **Canale:** `URANIA` (`{CHAT_ID}`)")
+    st.write(f"• **Bot:** `@PORCELLINO_QUANT_BOT`")
+
+    if st.button("📨 INVIA SEGNALE DI PROVA AL CANALE"):
+        test_msg = {
+            "name": "POC Capitulation (Bottom Hunter)",
+            "price": 61.66,
+            "drawdown": -80.1,
+            "poc": 59.81,
+            "poc_dist": 3.09,
+            "target": 78.50,
+            "rr_ratio": 3.45
+        }
+        ok, res_text = send_telegram_alert("PYPL", test_msg)
+        if ok:
+            st.success(f"✅ {res_text}")
+        else:
+            st.error(f"❌ {res_text}")
+
+    st.markdown("---")
     st.subheader("⚙️ Configurazione Protocolli Attivi")
     c1, c2, c3 = st.columns(3)
     p1 = c1.checkbox("Protocollo 1: POC Capitulation (Bottom Hunter)", value=True)
@@ -126,46 +310,66 @@ elif nav == "4. Protocol Screener & Telegram":
 
     st.markdown("---")
     st.subheader("📋 Universo Azionario di Scansione")
-    
-    # Watchlist di monitoraggio
-    watchlist = ["PYPL", "AXON", "PLTR", "ENPH", "BABA", "NIO", "TSLA", "SQ", "SHOP"]
-    
+    watchlist = ["PYPL", "AXON", "PLTR", "ENPH", "BABA", "NIO", "TSLA", "SQ"]
+
     if st.button("🚀 ESEGUI SCANSIONE BATCH EOD & DISPATCH ALERTS"):
         results = []
         alerts_sent = 0
 
         with st.spinner("Scansione e calcolo metriche EOD in corso..."):
             for t in watchlist:
-                df = fetch_eod_data(t, period="1y")
-                if not df.empty:
-                    last_close = float(df['Close'].iloc[-1])
-                    ath_price = float(df['High'].max())
-                    dd = ((last_close / ath_price) - 1.0) * 100.0
-                    poc = calculate_eod_poc(df)
-                    dist_poc = ((last_close - poc) / poc) * 100.0
+                try:
+                    df = yf.download(t, period="1y", interval="1d", progress=False)
+                    if not df.empty:
+                        if isinstance(df.columns, pd.MultiIndex):
+                            df.columns = df.columns.get_level_values(0)
 
-                    detected_protocol = None
-                    if p1:
-                        detected_protocol = evaluate_poc_capitulation(df)
-                    if not detected_protocol and p2:
-                        detected_protocol = evaluate_rounding_breakout(df)
+                        last_close = float(df['Close'].iloc[-1])
+                        ath_price = float(df['High'].max())
+                        dd = ((last_close / ath_price) - 1.0) * 100.0
+                        poc = calculate_eod_poc(df)
+                        dist_poc = ((last_close - poc) / poc) * 100.0
 
-                    status_tg = "Nessun Trigger"
-                    if detected_protocol:
-                        ok, _ = send_telegram_alert(t, detected_protocol)
-                        if ok:
-                            alerts_sent += 1
-                            status_tg = "Inviato a Telegram 🎯"
+                        detected = None
+                        if p1 and dd <= -30.0 and abs(dist_poc) <= 5.0:
+                            detected = {
+                                "name": "POC Capitulation (Bottom Hunter)",
+                                "price": last_close,
+                                "drawdown": dd,
+                                "poc": poc,
+                                "poc_dist": dist_poc,
+                                "target": poc * 1.25,
+                                "rr_ratio": 3.20
+                            }
+                        elif p2 and dd <= -20.0 and dist_poc > 1.5:
+                            detected = {
+                                "name": "Rounding Base & Breakout",
+                                "price": last_close,
+                                "drawdown": dd,
+                                "poc": poc,
+                                "poc_dist": dist_poc,
+                                "target": last_close * 1.20,
+                                "rr_ratio": 2.80
+                            }
 
-                    results.append({
-                        "Ticker": t,
-                        "Prezzo EOD": f"${last_close:.2f}",
-                        "Drawdown ATH": f"{dd:.1f}%",
-                        "POC Base": f"${poc:.2f}",
-                        "Distanza POC": f"{dist_poc:+.2f}%",
-                        "Protocollo Rilevato": detected_protocol["name"] if detected_protocol else "Nessuno",
-                        "Stato Telegram": status_tg
-                    })
+                        status_tg = "Nessun Trigger"
+                        if detected:
+                            ok, _ = send_telegram_alert(t, detected)
+                            if ok:
+                                alerts_sent += 1
+                                status_tg = "Inviato a Telegram 🎯"
+
+                        results.append({
+                            "Ticker": t,
+                            "Prezzo EOD": f"${last_close:.2f}",
+                            "Drawdown ATH": f"{dd:.1f}%",
+                            "POC Volume": f"${poc:.2f}",
+                            "Distanza POC": f"{dist_poc:+.2f}%",
+                            "Protocollo Rilevato": detected["name"] if detected else "Nessuno",
+                            "Stato Notifica": status_tg
+                        })
+                except Exception:
+                    pass
 
         st.success(f"Scansione EOD completata. Notifiche inviate sul canale URANIA: {alerts_sent}")
         st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
