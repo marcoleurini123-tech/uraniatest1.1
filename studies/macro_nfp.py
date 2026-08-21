@@ -6,8 +6,8 @@ import plotly.graph_objects as go
 from datetime import datetime
 
 @st.cache_data(ttl=86400)
-def get_nfp_historical_series():
-    """Genera il dataset mensile storico dei Non-Farm Payrolls con 1st, 2nd, 3rd release e delta."""
+def load_nfp_dataset():
+    """Genera il dataset storico mensile delle release NFP (1st, 2nd, 3rd release e delta 2nd-1st)."""
     dates = pd.date_range(start="1970-01-01", end=datetime.now(), freq="MS")
     np.random.seed(42)
     base_nfp = np.random.normal(165, 80, size=len(dates))
@@ -19,7 +19,7 @@ def get_nfp_historical_series():
         "3rd": base_nfp + np.random.normal(-15, 30, size=len(dates))
     })
     
-    # Eventi storici reali di contrazione occupazionale (come da screenshot Quant-Rea)
+    # Eventi storici reali di contrazione occupazionale (come da piattaforma Quant-Rea)
     shocks = {
         "2026-02": -92.0, "2020-07": -23.0, "2020-03": -701.0, 
         "2020-04": -20537.0, "2020-12": -140.0, "2017-09": -33.0, 
@@ -34,14 +34,14 @@ def get_nfp_historical_series():
     return df
 
 @st.cache_data(ttl=86400)
-def get_spx_monthly_log():
+def load_spx_log_history():
     """Scarica la serie storica mensile di S&P 500 (^GSPC)."""
     try:
         spx = yf.download("^GSPC", start="1970-01-01", interval="1mo", progress=False)
         if spx.empty:
             dates = pd.date_range(start="1970-01-01", end=datetime.now(), freq="MS")
-            p = 100 * np.exp(np.linspace(0, 4.0, len(dates)))
-            return pd.DataFrame({"Date": dates, "Close": p, "Log_Close": np.log(p)})
+            prices = 100 * np.exp(np.linspace(0, 4.0, len(dates)))
+            return pd.DataFrame({"Date": dates, "Close": prices, "Log_Close": np.log(prices)})
             
         if isinstance(spx.columns, pd.MultiIndex):
             spx.columns = spx.columns.get_level_values(0)
@@ -53,8 +53,8 @@ def get_spx_monthly_log():
         return df_spx.dropna()
     except Exception:
         dates = pd.date_range(start="1970-01-01", end=datetime.now(), freq="MS")
-        p = 100 * np.exp(np.linspace(0, 4.0, len(dates)))
-        return pd.DataFrame({"Date": dates, "Close": p, "Log_Close": np.log(p)})
+        prices = 100 * np.exp(np.linspace(0, 4.0, len(dates)))
+        return pd.DataFrame({"Date": dates, "Close": prices, "Log_Close": np.log(prices)})
 
 def render_nfp_study_view():
     st.markdown(
@@ -67,17 +67,17 @@ def render_nfp_study_view():
         unsafe_allow_html=True
     )
 
-    df_nfp = get_nfp_historical_series()
-    df_spx = get_spx_monthly_log()
+    df_nfp = load_nfp_dataset()
+    df_spx = load_spx_log_history()
 
     # Controlli Interattivi (Layout Quant-Rea)
     col_c1, col_c2, col_c3 = st.columns([2, 2, 1])
-    col_selected = col_c1.selectbox("Colonna:", ["1st", "2nd", "3rd", "2nd - 1st"], index=0)
-    soglia_val = col_c2.number_input(f"Soglia < ", value=0.0, step=10.0)
+    col_choice = col_c1.selectbox("Colonna:", ["1st", "2nd", "3rd", "2nd - 1st"], index=0)
+    soglia = col_c2.number_input(f"Soglia < ", value=0.0, step=10.0)
     col_c3.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
     btn_calc = col_c3.button("Calcola", use_container_width=True)
 
-    # Allineamento temporale nearest
+    # Allineamento temporale mensile
     merged = pd.merge_asof(
         df_nfp.sort_values("Date"),
         df_spx.sort_values("Date"),
@@ -85,9 +85,9 @@ def render_nfp_study_view():
         direction="nearest"
     )
 
-    triggered = merged[merged[col_selected] < soglia_val].copy()
+    triggered = merged[merged[col_choice] < soglia].copy()
 
-    # Grafico Overlay Log-Price SPX con Segnali da NON FARM
+    # Grafico Overlay Log-Price SPX con Segnali
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=df_spx["Date"],
@@ -102,13 +102,13 @@ def render_nfp_study_view():
             x=triggered["Date"],
             y=triggered["Log_Close"],
             mode="markers",
-            name=f"Filtro: {col_selected} < {soglia_val:.0f}",
+            name=f"Filtro: {col_choice} < {soglia:.0f}",
             marker=dict(color="#ef4444", size=6.5, symbol="circle")
         ))
 
     fig.update_layout(
         title=dict(
-            text=f"<b>Overlay Log-Price SPX con Segnali da NON FARM</b><br><span style='font-size:12px; color:#94a3b8;'>Filtro Attivo: {col_selected} < {soglia_val:.0f}</span>",
+            text=f"<b>Overlay Log-Price SPX con Segnali da NON FARM</b><br><span style='font-size:12px; color:#94a3b8;'>Filtro Attivo: {col_choice} < {soglia:.0f}</span>",
             font=dict(size=18, color="#00D1FF")
         ),
         xaxis_title="Data",
@@ -121,14 +121,14 @@ def render_nfp_study_view():
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # Tabella degli eventi storici sotto al grafico
+    # Tabella Storica Rilevazioni
     st.markdown("#### 📋 Tabella Rilevazioni Storiche")
     if not triggered.empty:
-        table_df = triggered[["Date", col_selected, "Close"]].copy()
+        table_df = triggered[["Date", col_choice, "Close"]].copy()
         table_df["Date"] = table_df["Date"].dt.strftime("%Y-%m-%d")
         table_df["Prezzo S&P 500"] = table_df["Close"].map(lambda x: f"${x:,.2f}")
-        table_df[f"Valore NFP ({col_selected})"] = table_df[col_selected].map(lambda x: f"{x:,.2f}k")
-        table_df = table_df.drop(columns=["Close", col_selected]).sort_values("Date", ascending=False)
+        table_df[f"Valore NFP ({col_choice})"] = table_df[col_choice].map(lambda x: f"{x:,.2f}k")
+        table_df = table_df.drop(columns=["Close", col_choice]).sort_values("Date", ascending=False)
         st.dataframe(table_df, use_container_width=True, hide_index=True)
     else:
         st.info("Nessuna rilevazione storica soddisfa i criteri impostati.")
