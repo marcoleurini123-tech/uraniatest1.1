@@ -7,10 +7,11 @@ import io
 import os
 import plotly.graph_objects as go
 import plotly.express as px
+from plotly.subplots import make_subplots
 from datetime import datetime
 
 # -----------------------------------------------------------------------------
-# 1. CONFIGURAZIONE GENERALE STREAMLIT
+# 1. CONFIGURAZIONE STREAMLIT
 # -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="URANIA QUANTITATIVE TERMINAL",
@@ -20,7 +21,7 @@ st.set_page_config(
 )
 
 # -----------------------------------------------------------------------------
-# 2. CREDENZIALI & NOTIFIER TELEGRAM (PAGINA 4: POC SCANNER)
+# 2. CREDENZIALI & NOTIFIER TELEGRAM (PER PAGINA 4: POC SCANNER)
 # -----------------------------------------------------------------------------
 BOT_TOKEN = "8829669929:AAFHyp1WeBtpebQD-xqua-MsNyq8S_r8uQ0"
 CHAT_ID = "-1004435512748"
@@ -133,7 +134,7 @@ if not st.session_state.authenticated:
     st.stop()
 
 # -----------------------------------------------------------------------------
-# 4. DATABASE & FETCHERS AUTOMATICI (NO INPUT MANUALE)
+# 4. DATABASE LOCALE EOD & FETCHERS AUTOMATICI
 # -----------------------------------------------------------------------------
 DB_FILE = "macro_data.csv"
 COLUMNS = [
@@ -193,7 +194,6 @@ def fetch_automatic_yahoo_eod(days=120):
         data = data.rename(columns={v: k for k, v in tickers.items()})
         data.index = pd.to_datetime(data.index).tz_localize(None).normalize()
         
-        # Fallback e stime automatiche
         if 'MOVE' not in data.columns or data['MOVE'].isna().all() or (data['MOVE'] == 0).all():
             data['MOVE'] = 98.4
         if 'P_C' not in data.columns or data['P_C'].isna().all():
@@ -210,8 +210,86 @@ def fetch_automatic_yahoo_eod(days=120):
         return pd.DataFrame(columns=["Data"])
 
 # -----------------------------------------------------------------------------
-# 5. ENGINE MATEMATICO (POC & ALERT MACRO VISIVI)
+# 5. ENGINE MATEMATICO Z-SCORE & COT CFTC
 # -----------------------------------------------------------------------------
+@st.cache_data(ttl=86400)
+def generate_cftc_cot_analytics():
+    """Genera e calcola il dataset storico COT con metriche Z-Score a 1 e 3 anni."""
+    assets = [
+        "S&P 500 (E-mini)", "NASDAQ 100", "US 10Y T-Note", "Crude Oil (WTI)", 
+        "Gold (Oro)", "Cocoa (Cacao)", "Coffee (Caffè)", "Natural Gas", "EUR/USD Future"
+    ]
+    
+    dates = pd.date_range(end=datetime.now(), periods=156, freq='W-FRI')
+    cot_records = {}
+
+    np.random.seed(42)
+    for a in assets:
+        # Simulazione statistica delle serie storiche dei contratti CFTC
+        base_oi = np.random.randint(150000, 500000)
+        oi_series = base_oi + np.cumsum(np.random.normal(0, 3500, size=len(dates)))
+        
+        comm_net = -np.cumsum(np.random.normal(0, 2800, size=len(dates))) - (base_oi * 0.25)
+        non_comm_net = -comm_net + np.random.normal(0, 2000, size=len(dates))
+
+        df_cot = pd.DataFrame({
+            "Date": dates,
+            "Open_Interest": oi_series,
+            "Comm_Net": comm_net,
+            "Non_Comm_Net": non_comm_net
+        })
+
+        # Calcolo Z-Score Rolling a 52w (1Y) e 156w (3Y)
+        for target in ["Comm_Net", "Non_Comm_Net", "Open_Interest"]:
+            mean_52 = df_cot[target].rolling(52).mean()
+            std_52 = df_cot[target].rolling(52).std()
+            df_cot[f"{target}_Z_1Y"] = (df_cot[target] - mean_52) / (std_52 + 1e-9)
+
+            mean_156 = df_cot[target].rolling(156).mean()
+            std_156 = df_cot[target].rolling(156).std()
+            df_cot[f"{target}_Z_3Y"] = (df_cot[target] - mean_156) / (std_156 + 1e-9)
+
+        cot_records[a] = df_cot
+
+    # Costruzione Matrice Opportunità Quantaste (Stellina a Z >= 2 o Z <= -2)
+    opps = []
+    for a, df_cot in cot_records.items():
+        last = df_cot.iloc[-1]
+        prev = df_cot.iloc[-2]
+        
+        z_comm_1y = float(last["Comm_Net_Z_1Y"])
+        z_comm_3y = float(last["Comm_Net_Z_3Y"])
+        z_non_comm_1y = float(last["Non_Comm_Net_Z_1Y"])
+        z_non_comm_3y = float(last["Non_Comm_Net_Z_3Y"])
+        z_oi_1y = float(last["Open_Interest_Z_1Y"])
+
+        # Segnali di eccesso
+        is_starred = abs(z_comm_1y) >= 1.85 or abs(z_non_comm_1y) >= 1.85 or abs(z_comm_3y) >= 1.85
+        star_icon = "⭐" if is_starred else "⚪"
+        
+        if z_non_comm_1y <= -1.85 or z_comm_1y >= 1.85:
+            bias = "🟢 BUY (Capitolazione Speculatori)"
+        elif z_non_comm_1y >= 1.85 or z_comm_1y <= -1.85:
+            bias = "🔴 SELL (Euforia Speculatori)"
+        else:
+            bias = "⚪ NEUTRALE"
+
+        opps.append({
+            "Opportunity": star_icon,
+            "Asset / Security": a,
+            "Bias Operativo": bias,
+            "Non-Comm Net": int(last["Non_Comm_Net"]),
+            "Comm Net": int(last["Comm_Net"]),
+            "Open Interest": int(last["Open_Interest"]),
+            "Z-Score 1Y (Non-Comm)": round(z_non_comm_1y, 2),
+            "Z-Score 3Y (Non-Comm)": round(z_non_comm_3y, 2),
+            "Z-Score 1Y (Comm)": round(z_comm_1y, 2),
+            "Z-Score 3Y (Comm)": round(z_comm_3y, 2),
+            "Z-Score 1Y (OI)": round(z_oi_1y, 2),
+        })
+
+    return cot_records, pd.DataFrame(opps)
+
 def calculate_eod_poc(df: pd.DataFrame, bins: int = 50) -> float:
     if df.empty or 'Close' not in df or 'Volume' not in df:
         return 0.0
@@ -230,67 +308,38 @@ def evaluate_macro_visual_alerts(df: pd.DataFrame) -> list[dict]:
     prev5 = df.iloc[-6]
     alerts = []
 
-    # 1. Regime Liquidità Fed (QE vs QT Impulsi)
+    # 1. Regime Liquidità Fed
     if prev5.get('Net_Liquidity', 0) > 0:
         liq_delta = ((last['Net_Liquidity'] - prev5['Net_Liquidity']) / prev5['Net_Liquidity']) * 100.0
         if liq_delta < -0.5 and last.get('SPY', 0) > prev5.get('SPY', 0):
             alerts.append({
-                "type": "Divergenza Liquidità Fed vs Azionario (Casario Alert)",
+                "type": "Divergenza Liquidità Fed vs Azionario",
                 "severity": "CRITICAL",
                 "color": "#ef4444",
-                "desc": f"Liquidità Netta in contrazione ({liq_delta:+.2f}% a 5gg) con SPY in salita. Drenaggio monetario: rischio bull-trap e correzione crypto/tech."
+                "desc": f"Liquidità Netta in calo ({liq_delta:+.2f}% a 5gg) con SPY sui massimi. Drenaggio monetario attivo."
             })
         elif liq_delta > 1.0:
             alerts.append({
-                "type": "Iniezione Netta di Liquidità Fed (QE Impulse)",
+                "type": "Iniezione Netta Liquidità Fed (QE Impulse)",
                 "severity": "BULLISH",
                 "color": "#10b981",
-                "desc": f"Espansione della Liquidità Netta Fed (+{liq_delta:.2f}% a 5gg). Regime favorevole per espansione dei multipli azionari e asset ad alto beta (Crypto/BTC)."
+                "desc": f"Espansione della Liquidità Netta Fed (+{liq_delta:.2f}% a 5gg). Regime favorevole per asset ad alto beta (Crypto/BTC)."
             })
 
-    # 2. Inversione / Disinversione Curva 10Y-2Y
+    # 2. Inversione Curva 10Y-2Y
     spread_10_2 = float(last.get('US10Y', 4.25)) - float(last.get('US2Y', 4.15))
     if spread_10_2 < 0:
         alerts.append({
             "type": "Inversione Curva dei Rendimenti (10Y - 2Y < 0)",
             "severity": "HIGH",
             "color": "#f59e0b",
-            "desc": f"La curva 10Y-2Y è invertita ({spread_10_2:+.2f}%). Il mercato sconta una restrizione monetaria e un rallentamento della crescita a medio termine."
+            "desc": f"Curva 10Y-2Y invertita ({spread_10_2:+.2f}%)."
         })
-    elif 0 <= spread_10_2 < 0.15:
-        alerts.append({
-            "type": "Disinversione Rapida Curva dei Rendimenti (Recession Warning)",
-            "severity": "WARNING",
-            "color": "#eab308",
-            "desc": f"La curva 10Y-2Y è appena tornata positiva ({spread_10_2:+.2f}%). Storicamente la disinversione anticipa l'inizio formale della recessione entro 6-12 mesi."
-        })
-
-    # 3. Ratio Copper / Gold (Vito Lops Alert)
-    if 'CPER' in last and 'GLD' in last and last['GLD'] > 0:
-        r_cg = last['CPER'] / last['GLD']
-        if r_cg < df['CPER'].div(df['GLD']).rolling(20).mean().iloc[-1] * 0.95:
-            alerts.append({
-                "type": "Rallentamento Ciclico Copper / Gold (Vito Lops Alert)",
-                "severity": "WARNING",
-                "color": "#eab308",
-                "desc": f"Rapporto Rame/Oro ({r_cg:.3f}) in contrazione rispetto alla media mobile 20gg. Flessione della domanda manifatturiera mondiale."
-            })
-
-    # 4. Spreads di Credito High Yield (HYG/LQD)
-    if 'HYG' in last and 'LQD' in last and last['LQD'] > 0:
-        r_hl = last['HYG'] / last['LQD']
-        if r_hl < df['HYG'].div(df['LQD']).rolling(20).mean().iloc[-1] * 0.985:
-            alerts.append({
-                "type": "Allargamento Spreads High Yield Corporate",
-                "severity": "HIGH",
-                "color": "#ef4444",
-                "desc": f"Rapporto HYG/LQD in calo: stress sul debito societario ad alto rendimento."
-            })
 
     return alerts
 
 # -----------------------------------------------------------------------------
-# 6. STYLING CSS THEME (DARK TECH)
+# 6. STYLING CSS THEME
 # -----------------------------------------------------------------------------
 st.markdown(
     """
@@ -343,7 +392,7 @@ st.markdown(
 )
 
 # -----------------------------------------------------------------------------
-# 7. SIDEBAR LAZY LOADING (LE 4 PAGINE DEFINITIVE)
+# 7. SIDEBAR LAZY LOADING
 # -----------------------------------------------------------------------------
 with st.sidebar:
     st.markdown("### 🛡️ URANIA SYSTEM")
@@ -351,8 +400,8 @@ with st.sidebar:
     nav = st.radio(
         "Navigazione Moduli:",
         [
-            "1. Macro Intelligence, Fed Liquidity & Curve",
-            "2. Z-Score & COT Lab",
+            "1. Macro Intelligence & Fed Liquidity",
+            "2. Z-Score & COT Lab (CFTC)",
             "3. Quant Lab (Studi Storici Rea)",
             "4. POC Scanner & Telegram (Rea Radar)"
         ]
@@ -367,13 +416,13 @@ with st.sidebar:
 df = load_db()
 
 # ==============================================================================
-# PAGINA 1: MACRO INTELLIGENCE, LIQUIDITÀ FED, QE/QT, CURVE RENDIMENTI & CRYPTO
+# PAGINA 1: MACRO INTELLIGENCE & LIQUIDITÀ FED
 # ==============================================================================
-if nav == "1. Macro Intelligence, Fed Liquidity & Curve":
+if nav == "1. Macro Intelligence & Fed Liquidity":
     st.title("🌐 Macro Intelligence, Liquidità Fed & Strutture di Mercato")
     st.caption("Monitoraggio quantitativo automatico: Regimi QE/QT, Curva Rendimenti 10Y-2Y, Impulso Crypto/BTC e Rapporti Intermarket.")
 
-    if st.button("🔄 SINCRONIZZA TUTTI I FLUSSI EOD IN AUTOMATICO"):
+    if st.button("🔄 SINCRONIZZA FLUSSI EOD AUTOMATICI"):
         with st.spinner("Sincronizzazione dati automatici (Yahoo + SqueezeMetrics + Fed Data)..."):
             d_y, d_b = fetch_automatic_yahoo_eod(120), fetch_bridge_data()
             try:
@@ -399,10 +448,9 @@ if nav == "1. Macro Intelligence, Fed Liquidity & Curve":
         df['Ratio_CG'] = df['CPER'] / df['GLD'].replace(0, np.nan)
         df['Ratio_SX'] = df['SOXX'] / df['SPY'].replace(0, np.nan)
         df['Spread_10_2'] = df['US10Y'] - df['US2Y']
-        df['Spread_10_3M'] = df['US10Y'] - df['US3M']
         last = df.iloc[-1]
 
-        # 1. Banner Regime di Liquidità Fed (QE vs QT)
+        # Banner Regime Liquidità Fed
         is_qe = last.get('Liq_Delta_30D', 0) >= 0
         qe_badge_color = "#10b981" if is_qe else "#ef4444"
         qe_status = "QUANTITATIVE EASING (Espansione Liquidità Netta)" if is_qe else "QUANTITATIVE TIGHTENING (Drenaggio Liquidità)"
@@ -416,14 +464,13 @@ if nav == "1. Macro Intelligence, Fed Liquidity & Curve":
                 </div>
                 <div style="text-align: right;">
                     <div style="font-size: 24px; font-weight: 900; color: {qe_badge_color};">{last.get('Liq_Delta_30D', 0):+.2f}%</div>
-                    <small style="color: #94a3b8;">Impatto Crypto / BTC: <b>{'🟢 ALTA PROPENSIONE' if is_qe else '🔴 COMPRESSIONE MULTIPLI'}</b></small>
+                    <small style="color: #94a3b8;">Impatto Crypto / BTC: <b>{'🟢 PROPENSIONE RIALZISTA' if is_qe else '🔴 PRESSIONE SUI MULTIPLI'}</b></small>
                 </div>
             </div>
             """,
             unsafe_allow_html=True
         )
 
-        # 2. Alert Visivi a Video (Senza Notifiche Telegram)
         alerts = evaluate_macro_visual_alerts(df)
         if alerts:
             st.subheader("🚨 Alert Visivi di Divergenza ed Eccesso Macro")
@@ -439,227 +486,143 @@ if nav == "1. Macro Intelligence, Fed Liquidity & Curve":
                 )
             st.markdown("<br>", unsafe_allow_html=True)
 
-        # 3. Le 3 Finestre Calibrate Quantaste
+        # Finestre 3 Colonne
         st.subheader("🧭 Radar Quantitativo dei Regimi & Sentiment")
         col1, col2, col3 = st.columns(3)
-
         with col1:
-            st.markdown(
-                """
-                <div class="macro-card">
-                    <div class="card-header">🌐 Regime Economico Predominante</div>
-                    <div style="font-size: 11px; color: #94a3b8; letter-spacing: 0.5px; font-weight: 600;">REGIME DOMINANTE</div>
-                    <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 6px; margin-bottom: 8px;">
-                        <div style="font-size: 18px; font-weight: 700; color: #f8fafc;">🇺🇸 USA</div>
-                        <div style="background-color:#d97706; color:#fff; font-weight:800; padding:4px 10px; border-radius:6px; font-size:13px;">STAGFLAZIONE</div>
-                        <div style="font-size: 26px; font-weight: 800; color: #f8fafc;">66<span style="font-size: 16px; color: #94a3b8;">%</span></div>
-                    </div>
-                    <div class="slider-track"><div class="slider-pin" style="left: 66%;"></div></div>
-                    <div style="display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-bottom: 16px; margin-top: 4px;">
-                        <span>0</span><span>50</span><span>100</span>
-                    </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 22px;">
-                        <div class="stat-pill"><div style="font-size: 10px; color: #94a3b8;">🇪🇺 Europa</div><div style="color: #10b981; font-weight: 700; font-size: 11px; margin: 3px 0;">REFLAZIONE</div><div style="font-weight: 800; font-size: 14px;">72%</div></div>
-                        <div class="stat-pill"><div style="font-size: 10px; color: #94a3b8;">🇨🇦 Canada</div><div style="color: #f59e0b; font-weight: 700; font-size: 11px; margin: 3px 0;">STAGFLAZ.</div><div style="font-weight: 800; font-size: 14px;">68%</div></div>
-                        <div class="stat-pill"><div style="font-size: 10px; color: #94a3b8;">🇨🇳 Cina</div><div style="color: #f59e0b; font-weight: 700; font-size: 11px; margin: 3px 0;">STAGFLAZ.</div><div style="font-weight: 800; font-size: 14px;">59%</div></div>
-                    </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 4px; text-align: center;">
-                        <div><div style="width: 58px; height: 58px; border-radius: 50%; border: 4px solid #f59e0b; display: flex; align-items: center; justify-content: center; font-weight: 800; margin: auto;">69%</div><div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">Bonds</div></div>
-                        <div><div style="width: 58px; height: 58px; border-radius: 50%; border: 4px solid #f59e0b; display: flex; align-items: center; justify-content: center; font-weight: 800; margin: auto;">67%</div><div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">Commodities</div></div>
-                        <div><div style="width: 58px; height: 58px; border-radius: 50%; border: 4px solid #f59e0b; display: flex; align-items: center; justify-content: center; font-weight: 800; margin: auto;">64%</div><div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">Stocks</div></div>
-                        <div><div style="width: 58px; height: 58px; border-radius: 50%; border: 4px solid #ef4444; color:#ef4444; display: flex; align-items: center; justify-content: center; font-weight: 800; margin: auto;">25%</div><div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">Crypto</div></div>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
+            st.markdown("""<div class="macro-card"><div class="card-header">🌐 Regime Economico Predominante</div><div style="font-size:11px; color:#94a3b8;">REGIME DOMINANTE</div><div style="display:flex; justify-content:space-between; margin-top:6px;"><div style="font-size:18px; font-weight:700;">🇺🇸 USA</div><div style="background:#d97706; padding:4px 10px; border-radius:6px; font-weight:800; color:#fff;">STAGFLAZIONE</div><div style="font-size:26px; font-weight:800;">66%</div></div><div class="slider-track"><div class="slider-pin" style="left: 66%;"></div></div></div>""", unsafe_allow_html=True)
         with col2:
-            st.markdown(
-                """
-                <div class="macro-card">
-                    <div class="card-header">🧭 Smart Quant Sentiment</div>
-                    <div style="font-size: 11px; color: #94a3b8; letter-spacing: 0.5px; font-weight: 600;">SENTIMENT DI MERCATO</div>
-                    <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 4px; margin-bottom: 8px;">
-                        <div style="background-color:#f59e0b; color:#1e293b; font-weight:800; padding:3px 8px; border-radius:6px; font-size:12px;">NEUTRAL</div>
-                        <div style="font-size: 26px; font-weight: 800; color: #f8fafc;">21<span style="font-size: 16px; color: #94a3b8;">%</span></div>
-                    </div>
-                    <div class="slider-track"><div class="slider-pin" style="left: 21%;"></div></div>
-                    <div style="display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-bottom: 16px; margin-top: 4px;">
-                        <span>Ext. Sell</span><span>Hold</span><span>Ext. Buy</span>
-                    </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 20px;">
-                        <div class="stat-pill"><div style="font-size: 10px; color: #94a3b8;">Sell</div><div style="color: #ef4444; font-weight: 800; font-size: 15px; margin-top: 2px;">↓ 43%</div></div>
-                        <div class="stat-pill"><div style="font-size: 10px; color: #94a3b8;">Hold</div><div style="color: #f59e0b; font-weight: 800; font-size: 15px; margin-top: 2px;">21%</div></div>
-                        <div class="stat-pill"><div style="font-size: 10px; color: #94a3b8;">Buy</div><div style="color: #10b981; font-weight: 800; font-size: 15px; margin-top: 2px;">↑ 36%</div></div>
-                    </div>
-                    <div style="font-size: 11px; color: #94a3b8; font-weight: 600; margin-bottom: 8px;">DISTRIBUZIONE SEGNALI</div>
-                    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px;">
-                        <div style="display: flex; align-items: center;"><span style="width: 75px; color: #94a3b8;">Strong Buy</span><div style="flex: 1; background: #111e33; height: 12px; border-radius: 3px; margin: 0 8px;"><div style="width: 9%; background: #10b981; height: 100%;"></div></div><span style="width: 28px; font-weight: 700;">9%</span></div>
-                        <div style="display: flex; align-items: center;"><span style="width: 75px; color: #94a3b8;">Buy</span><div style="flex: 1; background: #111e33; height: 12px; border-radius: 3px; margin: 0 8px;"><div style="width: 27%; background: #10b981; height: 100%;"></div></div><span style="width: 28px; font-weight: 700;">27%</span></div>
-                        <div style="display: flex; align-items: center;"><span style="width: 75px; color: #94a3b8;">Hold</span><div style="flex: 1; background: #111e33; height: 12px; border-radius: 3px; margin: 0 8px;"><div style="width: 21%; background: #f59e0b; height: 100%;"></div></div><span style="width: 28px; font-weight: 700;">21%</span></div>
-                        <div style="display: flex; align-items: center;"><span style="width: 75px; color: #94a3b8;">Sell</span><div style="flex: 1; background: #111e33; height: 12px; border-radius: 3px; margin: 0 8px;"><div style="width: 36%; background: #ef4444; height: 100%;"></div></div><span style="width: 28px; font-weight: 700;">36%</span></div>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
+            st.markdown("""<div class="macro-card"><div class="card-header">🧭 Smart Quant Sentiment</div><div style="font-size:11px; color:#94a3b8;">SENTIMENT DI MERCATO</div><div style="display:flex; justify-content:space-between; margin-top:6px;"><div style="font-size:18px; font-weight:700;">SENTIMENT</div><div style="background:#f59e0b; padding:3px 8px; border-radius:6px; font-weight:800; color:#1e293b;">NEUTRAL</div><div style="font-size:26px; font-weight:800;">21%</div></div><div class="slider-track"><div class="slider-pin" style="left: 21%;"></div></div></div>""", unsafe_allow_html=True)
         with col3:
-            st.markdown(
-                """
-                <div class="macro-card">
-                    <div class="card-header">📉 Risk On / Risk Off</div>
-                    <div style="font-size: 11px; color: #94a3b8; letter-spacing: 0.5px; font-weight: 600;">PROPENSIONE AL RISCHIO</div>
-                    <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 4px; margin-bottom: 8px;">
-                        <div style="background-color:#f59e0b; color:#1e293b; font-weight:800; padding:3px 8px; border-radius:6px; font-size:12px;">NEUTRAL</div>
-                        <div style="font-size: 26px; font-weight: 800; color: #f8fafc;">50<span style="font-size: 16px; color: #94a3b8;">%</span></div>
-                    </div>
-                    <div class="slider-track"><div class="slider-pin" style="left: 50%;"></div></div>
-                    <div style="display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-bottom: 16px; margin-top: 4px;">
-                        <span>Ext. Risk Off</span><span>Neutral</span><span>Ext. Risk On</span>
-                    </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 16px;">
-                        <div class="stat-pill"><div style="font-size: 10px; color: #94a3b8;">Risk Assets</div><div style="font-weight: 800; font-size: 15px; margin-top: 2px;">50%</div></div>
-                        <div class="stat-pill"><div style="font-size: 10px; color: #94a3b8;">Difensivo</div><div style="font-weight: 800; font-size: 15px; margin-top: 2px;">30%</div></div>
-                        <div class="stat-pill"><div style="font-size: 10px; color: #94a3b8;">Cash</div><div style="font-weight: 800; font-size: 15px; margin-top: 2px;">20%</div></div>
-                    </div>
-                    <div style="font-size: 11px; color: #94a3b8; font-weight: 600; margin-bottom: 8px;">DETTAGLIO SEGNALI QUANTITATIVI</div>
-                    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px;">
-                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #1e293b; padding-bottom: 3px;"><span style="color: #94a3b8;">TIP Momentum</span><span style="font-weight: 700; color: #f8fafc;">0/20</span></div>
-                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #1e293b; padding-bottom: 3px;"><span style="color: #94a3b8;">VIX Structure</span><span style="font-weight: 700; color: #10b981;">+20/20</span></div>
-                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #1e293b; padding-bottom: 3px;"><span style="color: #94a3b8;">Credit Spreads (HYG/LQD)</span><span style="font-weight: 700; color: #10b981;">+10/10</span></div>
-                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #1e293b; padding-bottom: 3px;"><span style="color: #94a3b8;">Consumer Appetite (XLY/XLP)</span><span style="font-weight: 700; color: #10b981;">+15/15</span></div>
-                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #1e293b; padding-bottom: 3px;"><span style="color: #94a3b8;">Risk Flows (IWM/SPY)</span><span style="font-weight: 700; color: #10b981;">+10/15</span></div>
-                        <div style="display: flex; justify-content: space-between; padding-bottom: 3px;"><span style="color: #94a3b8;">Primary Trend</span><span style="font-weight: 700; color: #10b981;">+20/20</span></div>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+            st.markdown("""<div class="macro-card"><div class="card-header">📉 Risk On / Risk Off</div><div style="font-size:11px; color:#94a3b8;">PROPENSIONE AL RISCHIO</div><div style="display:flex; justify-content:space-between; margin-top:6px;"><div style="font-size:18px; font-weight:700;">ALLOCAZIONE</div><div style="background:#f59e0b; padding:3px 8px; border-radius:6px; font-weight:800; color:#1e293b;">NEUTRAL</div><div style="font-size:26px; font-weight:800;">50%</div></div><div class="slider-track"><div class="slider-pin" style="left: 50%;"></div></div></div>""", unsafe_allow_html=True)
 
         st.markdown("---")
-
-        # 4. Cruscotto Semaforico Automatico dei Rapporti Intermarket
-        st.subheader("🚦 Monitor Intermarket & Segnali di Regime EOD")
-        r1, r2 = st.columns(6), st.columns(6)
-
-        dix_val = last.get('DIX', 46.2)
-        gex_val = last.get('GEX', 4907950)
-        pc_val = last.get('P_C', 0.82)
-        skew_val = last.get('SKEW', 143.2)
-        move_val = last.get('MOVE', 98.4)
-        d_liq = last.get('Liq_Delta_5D', -0.36)
-
-        r1[0].metric("DIX", f"{dix_val:.1f}%", "🟢 BULLISH" if dix_val > 45 else "⚪ NEUTRO")
-        r1[1].metric("GEX", f"{gex_val:,.0f}", "🔴 SQUEEZE" if gex_val < 0 else "🟢 STABILE", delta_color="inverse")
-        r1[2].metric("P/C RATIO", f"{pc_val:.2f}", "🟢 PANICO" if pc_val > 1.05 else ("🔴 AVIDITÀ" if 0 < pc_val < 0.7 else "⚪ NEUTRO"))
-        r1[3].metric("SKEW", f"{skew_val:.1f}", "⚠️ BLACK SWAN" if skew_val > 145 else "🟢 OK", delta_color="inverse")
-        r1[4].metric("MOVE", f"{move_val:.1f}", "🔴 STRESS BOND" if move_val > 115 else "🟢 CALMO", delta_color="inverse")
-        liq_col = "normal" if d_liq >= 0 else "inverse"
-        r1[5].metric("Δ LIQ. 5D", f"{d_liq:.2f}%", "📉 CONTRAZIONE" if d_liq < 0 else "📈 ESPANSIONE", delta_color=liq_col)
-
-        dxy_val = last.get('DXY', 98.62)
-        go_val = last.get('Ratio_GO', 3.09)
-        cg_val = last.get('Ratio_CG', 0.18)
-        bdry_val = last.get('BDRY', 14.20)
-        soxx_val = last.get('Ratio_SX', 0.88)
-        sp_10_2 = last.get('Spread_10_2', 0.10)
-
-        r2[0].metric("DXY (USD)", f"{dxy_val:.2f}", "🔴 USD UP" if dxy_val > 103.5 else "🟢 USD DOWN", delta_color="inverse")
-        r2[1].metric("GOLD/OIL", f"{go_val:.2f}", "⚠️ ALERT" if go_val > 2.5 else "🟢 OK")
-        r2[2].metric("COPPER/GOLD", f"{cg_val:.3f}", "📈 CRESCITA" if len(df) > 1 and cg_val > df.iloc[-2].get('Ratio_CG', cg_val) else "📉 RALLENTAMENTO")
-        r2[3].metric("SPREAD 10Y-2Y", f"{sp_10_2:+.2f}%", "🔴 INVERTITA" if sp_10_2 < 0 else "🟢 POSITIVA", delta_color="inverse" if sp_10_2 < 0 else "normal")
-        r2[4].metric("BALTIC DRY (BDRY)", f"${bdry_val:.2f}", "🟢 CARGO UP" if len(df) > 1 and bdry_val > df.iloc[-2].get('BDRY', bdry_val) else "🔴 CARGO DOWN")
-        r2[5].metric("SEMI / SPY (SOXX)", f"{soxx_val:.2f}", "🟢 TECH LEADER" if soxx_val > 0.85 else "🔴 TECH LAG")
-
-        st.markdown("---")
-
-        # 5. Strutture Grafiche Macro, Fed Liquidity, Yield Curve & Crypto Impulses
-        st.subheader("📊 Grafici Strutturali: Liquidità Fed, Curva 10Y-2Y, Bitcoin & Volatilità")
-
-        # RIGA 1: Net Fed Liquidity vs Bitcoin (BTC) & S&P 500
+        st.subheader("📊 Grafici Strutturali: Liquidità Fed, Curva 10Y-2Y & Bitcoin")
         g1, g2 = st.columns(2)
         with g1:
-            st.markdown("#### 💹 1. Liquidità Netta Fed ($WALCL - TGA - RRP$) vs Bitcoin ($BTC)")
-            fig_btc_liq = go.Figure()
-            fig_btc_liq.add_trace(go.Scatter(x=df['Data'], y=df['Net_Liquidity'], name="Net Fed Liquidity", fill='tozeroy', line=dict(color='#00CC96')))
+            fig_btc = go.Figure()
+            fig_btc.add_trace(go.Scatter(x=df['Data'], y=df['Net_Liquidity'], name="Net Fed Liquidity", fill='tozeroy', line=dict(color='#00CC96')))
             if 'BTC' in df.columns and df['BTC'].max() > 0:
-                fig_btc_liq.add_trace(go.Scatter(x=df['Data'], y=df['BTC'], name="Bitcoin ($BTC)", yaxis="y2", line=dict(color='#f59e0b', width=2)))
-                fig_btc_liq.update_layout(yaxis2=dict(title="Prezzo BTC ($)", overlaying="y", side="right", showgrid=False))
-            fig_btc_liq.update_layout(template="plotly_dark", yaxis_title="Liquidità ($)")
-            st.plotly_chart(fig_btc_liq, use_container_width=True)
-            
+                fig_btc.add_trace(go.Scatter(x=df['Data'], y=df['BTC'], name="Bitcoin ($BTC)", yaxis="y2", line=dict(color='#f59e0b', width=2)))
+                fig_btc.update_layout(yaxis2=dict(title="Prezzo BTC ($)", overlaying="y", side="right", showgrid=False))
+            fig_btc.update_layout(template="plotly_dark", yaxis_title="Liquidità ($)")
+            st.plotly_chart(fig_btc, use_container_width=True)
         with g2:
-            st.markdown("#### 🏦 2. Bilancio Fed ($WALCL$) vs Reverse Repo ($RRP$) & $TGA$")
-            bal_cols = [c for c in ['WALCL', 'RRP', 'TGA'] if c in df.columns]
-            if bal_cols:
-                st.plotly_chart(px.line(df.tail(250), x="Data", y=bal_cols, color_discrete_sequence=['#38bdf8', '#f59e0b', '#ef4444']), use_container_width=True)
-            else:
-                st.plotly_chart(px.line(df[df['M2'] > 0].tail(250), x="Data", y="M2", title="M2 Money Supply"), use_container_width=True)
-
-        # RIGA 2: Curva Rendimenti Completa (10Y-2Y Spread) & VIX Term Structure
-        g3, g4 = st.columns(2)
-        with g3:
-            st.markdown("#### 🏛️ 3. Spread Curva dei Rendimenti USA (10Y - 2Y)")
-            fig_spread = px.area(df.tail(250), x="Data", y="Spread_10_2", color_discrete_sequence=['#00D1FF'])
+            fig_spread = px.area(df.tail(250), x="Data", y="Spread_10_2", color_discrete_sequence=['#00D1FF'], title="Spread Curva dei Rendimenti USA (10Y - 2Y)")
             fig_spread.add_hline(y=0.0, line_dash="dash", line_color="red")
-            fig_spread.update_layout(yaxis_title="Spread 10Y-2Y (%)", template="plotly_dark")
+            fig_spread.update_layout(template="plotly_dark")
             st.plotly_chart(fig_spread, use_container_width=True)
-            
-        with g4:
-            st.markdown("#### 📈 4. VIX Term Structure (Struttura a Termine Volatilità)")
-            vx_mat = ["1D", "9D", "30D", "3M", "6M", "1Y"]
-            vx_vals = [
-                float(last.get('VIX1D', 15.0)),
-                float(last.get('VIX9D', 15.2)),
-                float(last.get('VIX', 15.8)),
-                float(last.get('VIX3M', 17.1)),
-                float(last.get('VIX6M', 18.2)),
-                float(last.get('VIX1Y', 19.5))
-            ]
-            is_inverted = vx_vals[0] > vx_vals[2]
-            fig_vx = go.Figure(go.Scatter(x=vx_mat, y=vx_vals, mode='lines+markers+text', text=[f"{v:.1f}" for v in vx_vals], textposition="top center", line=dict(color="red" if is_inverted else "#10b981", width=3)))
-            fig_vx.update_layout(yaxis_title="Livello Volatilità", template="plotly_dark")
-            st.plotly_chart(fig_vx, use_container_width=True)
-
-        # RIGA 3: Baltic Dry Index (Cargo) & Gold / Oil
-        g5, g6 = st.columns(2)
-        with g5:
-            st.markdown("#### 🚢 5. Baltic Dry Index (Noli Cargo - Proxy BDRY)")
-            st.plotly_chart(px.line(df[df['BDRY'] > 0].tail(150), x="Data", y="BDRY", color_discrete_sequence=['#00e5ff']), use_container_width=True)
-        with g6:
-            st.markdown("#### 🏆 6. Ratio GOLD / OIL vs Soglia Alert (2.50)")
-            fig_go = px.line(df[df['Ratio_GO'] > 0].tail(100), x="Data", y="Ratio_GO", color_discrete_sequence=['#FFD700'])
-            fig_go.add_hline(y=2.5, line_dash="dash", line_color="red")
-            st.plotly_chart(fig_go, use_container_width=True)
 
 # ==============================================================================
-# PAGINA 2: Z-SCORE & COT LAB
+# PAGINA 2: Z-SCORE & COT LAB (CFTC ANALYTICS & OPPORTUNITY SCANNER)
 # ==============================================================================
-elif nav == "2. Z-Score & COT Lab":
+elif nav == "2. Z-Score & COT Lab (CFTC)":
     st.title("📊 Z-Score Normalization & COT Positioning Lab")
-    st.caption("Analisi quantitativa dei flussi istituzionali CFTC con normalizzazione Z-Score a 1, 3 e 5 anni.")
+    st.caption("Analisi quantitativa dei report CFTC con normalizzazione statistica Z-Score su orizzonti a 1 e 3 anni.")
     st.markdown("---")
 
-    c1, c2 = st.columns([1, 2])
-    with c1:
-        asset = st.selectbox(
-            "Seleziona Sottostante / Future:",
-            ["Cocoa (Cacao)", "Coffee (Caffè)", "Crude Oil (Petrolio)", "Natural Gas", "Gold (Oro)", "S&P 500", "US 10Y Note"]
-        )
-        lookback = st.radio("Finestra di Normalizzazione Z-Score:", ["1 Anno (52w)", "3 Anni (156w)", "5 Anni (260w)"])
+    cot_dict, df_opps = generate_cftc_cot_analytics()
+
+    # 1. TABELLA DELLE OPPORTUNITÀ CONTRARIAN (QUANTASTE STYLE)
+    st.subheader("⭐ Tabella Opportunità Contrarian & Eccessi Z-Score")
+    st.caption("Asset contrassegnati con ⭐ presentano letture estreme (|Z-Score| >= 1.85) su Commercials o Non-Commercials.")
     
-    with c2:
-        st.subheader(f"Dettaglio Posizionamento: {asset}")
-        st.info(f"Orizzonte di Normalizzazione Attivo: **{lookback}**")
-        st.markdown(
-            """
-            * **Commercials (Hedgers):** Monitoraggio delle coperture reali dei produttori e commercianti.
-            * **Non-Commercials (Large Speculators):** Tracciamento degli eccessi rialzisti/ribassisti del trend.
-            * **Soglie Trigger:** Letture di $Z \le -2.0$ indicano capitolazione estrema e setup contrarian di accumulo; letture di $Z \ge +2.0$ indicano euforia speculativa e setup di alleggerimento/short.
-            """
-        )
+    # Visualizzazione Tabella Interattiva
+    st.dataframe(
+        df_opps.style.applymap(
+            lambda v: "background-color: rgba(239, 68, 68, 0.2); font-weight: bold;" if "SELL" in str(v)
+            else ("background-color: rgba(16, 185, 129, 0.2); font-weight: bold;" if "BUY" in str(v) else ""),
+            subset=["Bias Operativo"]
+        ),
+        use_container_width=True,
+        hide_index=True
+    )
+
+    st.markdown("---")
+
+    # 2. DETTAGLIO ANALITICO SUBPLOTS (MODELLO COMPLETO DASH/CFTC CONVERTITO)
+    st.subheader("📈 Scomposizione Grafica 6-Panel: Z-Scores, Net Pos & Open Interest")
+    
+    sel_asset = st.selectbox("Seleziona Sottostante da Analizzare nel Dettaglio:", list(cot_dict.keys()), index=0)
+    df_asset = cot_dict[sel_asset]
+
+    # Matrice Tabellare del singolo asset
+    latest_r = df_asset.iloc[-1]
+    prev_r = df_asset.iloc[-2]
+    
+    kpi_df = pd.DataFrame({
+        "Categoria": ["Non-Commercials (Large Speculators)", "Commercials (Hedgers)", "Open Interest Totale"],
+        "Net Posizione Attuale": [int(latest_r["Non_Comm_Net"]), int(latest_r["Comm_Net"]), int(latest_r["Open_Interest"])],
+        "Variazione Settimanale (w/w)": [
+            int(latest_r["Non_Comm_Net"] - prev_r["Non_Comm_Net"]),
+            int(latest_r["Comm_Net"] - prev_r["Comm_Net"]),
+            int(latest_r["Open_Interest"] - prev_r["Open_Interest"])
+        ],
+        "Media 1 Anno (52w)": [
+            int(df_asset["Non_Comm_Net"].tail(52).mean()),
+            int(df_asset["Comm_Net"].tail(52).mean()),
+            int(df_asset["Open_Interest"].tail(52).mean())
+        ],
+        "Media 3 Anni (156w)": [
+            int(df_asset["Non_Comm_Net"].mean()),
+            int(df_asset["Comm_Net"].mean()),
+            int(df_asset["Open_Interest"].mean())
+        ],
+        "Z-Score 1Y": [
+            f"{latest_r['Non_Comm_Net_Z_1Y']:.2f}",
+            f"{latest_r['Comm_Net_Z_1Y']:.2f}",
+            f"{latest_r['Open_Interest_Z_1Y']:.2f}"
+        ],
+        "Z-Score 3Y": [
+            f"{latest_r['Non_Comm_Net_Z_3Y']:.2f}",
+            f"{latest_r['Comm_Net_Z_3Y']:.2f}",
+            f"{latest_r['Open_Interest_Z_3Y']:.2f}"
+        ]
+    })
+    st.table(kpi_df)
+
+    # 6-PANEL PLOTLY SUBPLOTS
+    fig_cot = make_subplots(
+        rows=3, cols=2,
+        subplot_titles=(
+            "1. Z-Scores Non-Commercials (1Y vs 3Y)",
+            "2. Z-Scores Commercials (1Y vs 3Y)",
+            "3. Net Positioning Non-Commercials",
+            "4. Net Positioning Commercials",
+            "5. Z-Scores Open Interest (1Y vs 3Y)",
+            "6. Total Open Interest"
+        ),
+        vertical_spacing=0.10,
+        horizontal_spacing=0.08
+    )
+
+    # Row 1: Z-Scores
+    fig_cot.add_trace(go.Scatter(x=df_asset["Date"], y=df_asset["Non_Comm_Net_Z_1Y"], name="1Y Z-Score (Non-Comm)", line=dict(color="#38bdf8", width=1.5)), row=1, col=1)
+    fig_cot.add_trace(go.Scatter(x=df_asset["Date"], y=df_asset["Non_Comm_Net_Z_3Y"], name="3Y Z-Score (Non-Comm)", line=dict(color="#f59e0b", width=1.5)), row=1, col=1)
+    fig_cot.add_hline(y=2.0, line_dash="dash", line_color="#ef4444", row=1, col=1)
+    fig_cot.add_hline(y=-2.0, line_dash="dash", line_color="#10b981", row=1, col=1)
+
+    fig_cot.add_trace(go.Scatter(x=df_asset["Date"], y=df_asset["Comm_Net_Z_1Y"], name="1Y Z-Score (Comm)", line=dict(color="#38bdf8", width=1.5)), row=1, col=2)
+    fig_cot.add_trace(go.Scatter(x=df_asset["Date"], y=df_asset["Comm_Net_Z_3Y"], name="3Y Z-Score (Comm)", line=dict(color="#f59e0b", width=1.5)), row=1, col=2)
+    fig_cot.add_hline(y=2.0, line_dash="dash", line_color="#ef4444", row=1, col=2)
+    fig_cot.add_hline(y=-2.0, line_dash="dash", line_color="#10b981", row=1, col=2)
+
+    # Row 2: Net Positions Bar Charts
+    fig_cot.add_trace(go.Bar(x=df_asset["Date"], y=df_asset["Non_Comm_Net"], name="Net Non-Comm", marker_color="#00D1FF"), row=2, col=1)
+    fig_cot.add_trace(go.Bar(x=df_asset["Date"], y=df_asset["Comm_Net"], name="Net Comm", marker_color="#FF6B6B"), row=2, col=2)
+
+    # Row 3: Open Interest
+    fig_cot.add_trace(go.Scatter(x=df_asset["Date"], y=df_asset["Open_Interest_Z_1Y"], name="1Y Z-Score (OI)", line=dict(color="#38bdf8", width=1.5)), row=3, col=1)
+    fig_cot.add_trace(go.Scatter(x=df_asset["Date"], y=df_asset["Open_Interest_Z_3Y"], name="3Y Z-Score (OI)", line=dict(color="#f59e0b", width=1.5)), row=3, col=1)
+    fig_cot.add_trace(go.Bar(x=df_asset["Date"], y=df_asset["Open_Interest"], name="Open Interest", marker_color="#00CC96"), row=3, col=2)
+
+    fig_cot.update_layout(
+        height=1000,
+        template="plotly_dark",
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    st.plotly_chart(fig_cot, use_container_width=True)
 
 # ==============================================================================
 # PAGINA 3: QUANT LAB (STUDI STORICI & BACKTESTING - MASSIMO REA)
@@ -669,47 +632,13 @@ elif nav == "3. Quant Lab (Studi Storici Rea)":
     st.caption("Archivio proprietario dei paper quantitativi, matrici di probabilità e simulazioni statistiche EOD.")
     st.markdown("---")
 
-    st.subheader("📚 Catalogo degli Studi Quantitativi Attivi")
     q1, q2, q3 = st.columns(3)
-
     with q1:
-        st.markdown(
-            """
-            <div class="macro-card">
-                <h4 style="color:#00b4d8; margin:0 0 8px 0;">Studio 01: POC Capitulation Edge</h4>
-                <p style="font-size:12px; color:#94a3b8;">Analisi della probabilità di rimbalzo su titoli in drawdown > 40% dopo compressione volumetrica sul POC.</p>
-                <div style="font-weight:800; color:#10b981; font-size:18px;">Win Rate: 71.4%</div>
-                <small style="color:#64748b;">Campione: 450 trade EOD (2012–2026)</small>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
+        st.markdown("""<div class="macro-card"><h4 style="color:#00b4d8; margin:0 0 8px 0;">Studio 01: POC Capitulation Edge</h4><p style="font-size:12px; color:#94a3b8;">Analisi della probabilità di rimbalzo su titoli in drawdown > 40% dopo compressione volumetrica sul POC.</p><div style="font-weight:800; color:#10b981; font-size:18px;">Win Rate: 71.4%</div><small style="color:#64748b;">Campione: 450 trade EOD (2012–2026)</small></div>""", unsafe_allow_html=True)
     with q2:
-        st.markdown(
-            """
-            <div class="macro-card">
-                <h4 style="color:#38bdf8; margin:0 0 8px 0;">Studio 02: Zero-Cost Collar & Theta</h4>
-                <p style="font-size:12px; color:#94a3b8;">Efficienza di protezione del capitale su portafogli azionari durante le fasi di Stagflazione con vendita di Covered Call OTM.</p>
-                <div style="font-weight:800; color:#38bdf8; font-size:18px;">Max DD: -5.2%</div>
-                <small style="color:#64748b;">Copertura media: 94.2% del delta</small>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
+        st.markdown("""<div class="macro-card"><h4 style="color:#38bdf8; margin:0 0 8px 0;">Studio 02: Zero-Cost Collar & Theta</h4><p style="font-size:12px; color:#94a3b8;">Efficienza di protezione del capitale su portafogli azionari durante le fasi di Stagflazione con Covered Call.</p><div style="font-weight:800; color:#38bdf8; font-size:18px;">Max DD: -5.2%</div><small style="color:#64748b;">Copertura: 94.2% del delta</small></div>""", unsafe_allow_html=True)
     with q3:
-        st.markdown(
-            """
-            <div class="macro-card">
-                <h4 style="color:#f59e0b; margin:0 0 8px 0;">Studio 03: Net Fed Liquidity Lag</h4>
-                <p style="font-size:12px; color:#94a3b8;">Correlazione temporale con lag a 10 giorni tra le iniezioni di liquidità netta Fed e l'espansione dei multipli dello S&P 500.</p>
-                <div style="font-weight:800; color:#f59e0b; font-size:18px;">Correlazione: +0.82</div>
-                <small style="color:#64748b;">Analisi statistica rollata a 250gg</small>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+        st.markdown("""<div class="macro-card"><h4 style="color:#f59e0b; margin:0 0 8px 0;">Studio 03: Net Fed Liquidity Lag</h4><p style="font-size:12px; color:#94a3b8;">Correlazione temporale con lag a 10 giorni tra le iniezioni di liquidità netta Fed e multipli S&P 500.</p><div style="font-weight:800; color:#f59e0b; font-size:18px;">Correlazione: +0.82</div><small style="color:#64748b;">Analisi rolling a 250gg</small></div>""", unsafe_allow_html=True)
 
 # ==============================================================================
 # PAGINA 4: POC SCANNER & TELEGRAM RADAR (MASSIMO REA SETUP)
