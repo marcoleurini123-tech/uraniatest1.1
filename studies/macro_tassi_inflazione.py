@@ -11,6 +11,7 @@ def load_macro_multivariate_series():
     dates = pd.date_range(start="1950-01-01", end=datetime.now(), freq="MS")
     n = len(dates)
 
+    # 1. Serie Storica S&P 500 (^GSPC)
     try:
         spx = yf.download("^GSPC", start="1950-01-01", interval="1mo", progress=False)
         if isinstance(spx.columns, pd.MultiIndex):
@@ -22,7 +23,7 @@ def load_macro_multivariate_series():
         prices = 17.0 * np.exp(np.linspace(0, 6.0, n))
         df_spx = pd.DataFrame({"Date": pd.to_datetime(dates).astype("datetime64[ns]"), "Close": prices})
 
-    # Serie storiche macroeconomiche USA (1950 - 2026)
+    # 2. Serie Storiche Macroeconomiche USA (1950 - 2026)
     inf_base = np.interp(
         np.linspace(0, 1, n),
         [0.0, 0.07, 0.15, 0.28, 0.38, 0.42, 0.52, 0.65, 0.76, 0.82, 0.90, 0.94, 0.98, 1.0],
@@ -61,7 +62,7 @@ def render_tassi_inflazione_view():
         """
         <div style="background: rgba(15,23,42,0.95); border: 1px solid #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 15px;">
             <h2 style="color: #f8fafc; margin: 0 0 6px 0;">📈 Tassi - Inflazione - Disoccupazione</h2>
-            <p style="color: #94a3b8; margin: 0; font-size: 14px;">Come si comporta il S&P 500 con Disoccupazione - Inflazione - tassi alti o bassi?</p>
+            <p style="color: #94a3b8; margin: 0; font-size: 14px;">Analisi Multivariata: come si comporta l'S&P 500 nei diversi regimi macroeconomici combinati.</p>
         </div>
         """,
         unsafe_allow_html=True
@@ -71,7 +72,7 @@ def render_tassi_inflazione_view():
 
     st.markdown("#### Analisi Multivariata vs S&P500")
 
-    # Controlli Parametrici Multivariati (Quant-Rea Replica)
+    # Controlli Parametrici Multivariati
     c1, c2, c3, c4 = st.columns([1.5, 1.5, 1.5, 1])
     soglia_inf = c1.number_input("Soglia Inflazione (%):", value=3.0, step=0.5)
     soglia_rate = c2.number_input("Soglia Fed Rate (%):", value=3.0, step=0.5)
@@ -87,7 +88,7 @@ def render_tassi_inflazione_view():
 
     cond_label = f"Infla>{soglia_inf:g}% & Rate>{soglia_rate:g}% & Unemp>{soglia_unemp:g}%"
 
-    # 1. GRAFICO: S&P500 (log) con segmentazione bicolore
+    # 1. GRAFICO: S&P500 (log)
     fig1 = go.Figure()
     df_sotto = df.copy()
     df_sotto.loc[df_sotto["Condition_Met"], "Log_Close"] = np.nan
@@ -106,7 +107,7 @@ def render_tassi_inflazione_view():
     )
     st.plotly_chart(fig1, use_container_width=True)
 
-    # 2. GRAFICO: Drawdown S&P500 (condizione combinata)
+    # 2. GRAFICO: Drawdown S&P500
     fig2 = go.Figure()
     df_dd_sopra = df.copy()
     df_dd_sopra.loc[~df_dd_sopra["Condition_Met"], "Drawdown"] = np.nan
