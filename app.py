@@ -15,7 +15,7 @@ st.set_page_config(
 )
 
 # -----------------------------------------------------------------------------
-# CREDENZIALI TELEGRAM (CANALE URANIA)
+# CREDENZIALI TELEGRAM CANALE URANIA
 # -----------------------------------------------------------------------------
 BOT_TOKEN = "8829669929:AAFHyp1WeBtpebQD-xqua-MsNyq8S_r8uQ0"
 CHAT_ID = "-1004435512748"
@@ -40,7 +40,7 @@ def send_telegram_alert(ticker: str, details: dict) -> tuple[bool, str]:
         r = requests.post(url, json=payload, timeout=10)
         res = r.json()
         if r.status_code == 200 and res.get("ok"):
-            return True, "Alert inoltrato al canale URANIA."
+            return True, "Alert inoltrato con successo al canale URANIA."
         return False, f"Errore Telegram: {res.get('description', 'Unauthorized')}"
     except Exception as e:
         return False, f"Errore connessione: {str(e)}"
@@ -60,7 +60,7 @@ def calculate_eod_poc(df: pd.DataFrame, bins: int = 50) -> float:
     return float(price_bins[np.argmax(vol_hist)])
 
 # -----------------------------------------------------------------------------
-# AUTENTICAZIONE E SCHERMATA LOGIN CON BRANDING URANIA
+# GESTIONE SESSIONE & AUTENTICAZIONE CON LOGO URANIA
 # -----------------------------------------------------------------------------
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -70,30 +70,40 @@ if not st.session_state.authenticated:
         """
         <style>
         .stApp {
-            background: radial-gradient(circle at center, #111827 0%, #030712 100%);
+            background-color: #030712 !important;
+            background-image: radial-gradient(circle at 50% 30%, #111827 0%, #030712 100%) !important;
         }
-        .login-box {
-            background: rgba(17, 24, 39, 0.85);
-            backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 215, 0, 0.25);
+        .login-card {
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid rgba(212, 175, 55, 0.35);
             border-radius: 16px;
-            padding: 35px;
+            padding: 35px 25px;
             text-align: center;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
+            max-width: 480px;
+            margin: auto;
         }
-        .urania-title {
-            font-size: 32px;
-            font-weight: 800;
-            letter-spacing: 4px;
-            color: #f1f5f9;
-            margin: 10px 0 2px 0;
+        .urania-logo-svg {
+            width: 140px;
+            height: 140px;
+            margin: 0 auto 15px auto;
+            display: block;
         }
-        .urania-sub {
+        .brand-title {
+            font-size: 34px;
+            font-weight: 900;
+            letter-spacing: 5px;
+            color: #f8fafc;
+            margin: 0;
+            font-family: 'Segoe UI', sans-serif;
+        }
+        .brand-motto {
             font-size: 11px;
-            letter-spacing: 3px;
+            letter-spacing: 3.5px;
             color: #d4af37;
-            font-weight: 600;
-            margin-bottom: 20px;
+            font-weight: 700;
+            margin-top: 4px;
+            margin-bottom: 15px;
         }
         </style>
         """,
@@ -101,30 +111,45 @@ if not st.session_state.authenticated:
     )
     
     st.markdown("<br><br>", unsafe_allow_html=True)
-    _, center_col, _ = st.columns([1, 1.4, 1])
+    _, col_center, _ = st.columns([1, 1.6, 1])
     
-    with center_col:
+    with col_center:
         st.markdown(
             """
-            <div class="login-box">
-                <div style="font-size: 48px;">🛡️</div>
-                <div class="urania-title">URANIA</div>
-                <div class="urania-sub">PRECISION. CONSISTENCY. GROWTH.</div>
-                <p style="color: #94a3b8; font-size: 13px; margin-bottom: 25px;">
-                    Macro Quantitative Terminal • EOD Execution Engine
+            <div class="login-card">
+                <!-- Vettore Grafico Icona Urania (Dea Astronomica & Trendline Freccia) -->
+                <svg class="urania-logo-svg" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="100" cy="100" r="90" stroke="#0ea5e9" stroke-width="4" stroke-opacity="0.6"/>
+                    <circle cx="100" cy="100" r="82" stroke="#d4af37" stroke-width="2" stroke-dasharray="6 6"/>
+                    <!-- Costellazione Urania -->
+                    <circle cx="65" cy="55" r="3" fill="#d4af37"/>
+                    <circle cx="85" cy="45" r="4" fill="#d4af37"/>
+                    <circle cx="115" cy="48" r="3.5" fill="#d4af37"/>
+                    <circle cx="140" cy="65" r="3" fill="#d4af37"/>
+                    <path d="M65 55 L85 45 L115 48 L140 65" stroke="#d4af37" stroke-width="1.5" stroke-opacity="0.7"/>
+                    <!-- Profilo Urania -->
+                    <path d="M75 140 C75 105, 95 85, 110 75 C118 70, 125 78, 120 90 C115 102, 100 115, 95 140" stroke="#f8fafc" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+                    <!-- Trendline Breakout Arrow -->
+                    <path d="M45 155 L80 120 L110 145 L165 55" stroke="#38bdf8" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M140 55 L165 55 L165 80" stroke="#38bdf8" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <div class="brand-title">URANIA</div>
+                <div class="brand-motto">PRECISION. CONSISTENCY. GROWTH.</div>
+                <p style="color: #94a3b8; font-size: 13px; margin-bottom: 20px;">
+                    Macro Quantitative Terminal • EOD Execution Pipeline
                 </p>
             </div>
             """,
             unsafe_allow_html=True
         )
         st.markdown("<br>", unsafe_allow_html=True)
-        pwd = st.text_input("Password di Accesso:", type="password", placeholder="••••••••••••")
+        pwd_input = st.text_input("Password di Accesso:", type="password", placeholder="••••••••••••")
         if st.button("SBLOCCA TERMINALE", use_container_width=True):
-            if pwd == "Serafino12?#":
+            if pwd_input == "Serafino12?#":
                 st.session_state.authenticated = True
                 st.rerun()
             else:
-                st.error("Credenziali non valide.")
+                st.error("Credenziali non corrette. Accesso negato.")
     st.stop()
 
 # -----------------------------------------------------------------------------
@@ -150,32 +175,32 @@ with st.sidebar:
         st.rerun()
 
 # ==============================================================================
-# MODULO 1: MACRO REGIMES, LIQUIDITÀ & LE 3 FINESTRE SENTIMENT
+# MODULO 1: DASHBOARD MACRO, LIQUIDITÀ & 3 FINESTRE SENTIMENT
 # ==============================================================================
 if nav == "1. Dashboard Macro & Sentiment":
     st.title("🌐 Macroeconomic Regimes & Market Sentiment")
     st.caption("Monitoraggio integrato dei 7 Scenari Macro, Liquidità Globale e i 3 Pilastri di Sentiment.")
     st.markdown("---")
 
-    # 1. Liquidità Fed e Regimi
+    # 1. Regimi Macro & Liquidità Fed
     st.subheader("🏛️ Regimi Macroeconomici & Liquidità Netta Fed")
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Regime Macro Attivo", "Goldilocks / Disinflazione", "+0.42 pt")
     m2.metric("Net Fed Liquidity (WALCL-TGA-RRP)", "$6.12T", "+$24B w/w")
-    m3.metric("Treasury General Account (TGA)", "$748B", "-$12B")
+    m3.metric("US Treasury (TGA)", "$748B", "-$12B")
     m4.metric("Reverse Repo (RRP)", "$320B", "-$8B")
 
     st.markdown("---")
 
-    # 2. Le 3 Finestre di Sentiment
+    # 2. Le 3 Finestre del Sentiment di Mercato
     st.subheader("🧭 Le 3 Finestre del Sentiment di Mercato")
     s1, s2, s3 = st.columns(3)
 
     with s1:
         st.markdown(
             """
-            <div style="background: rgba(18,26,47,0.7); padding: 18px; border-radius: 10px; border-left: 4px solid #38bdf8;">
-                <h4 style="margin:0; color:#38bdf8;">1. CNN Fear & Greed Index</h4>
+            <div style="background: rgba(18,26,47,0.7); padding: 18px; border-radius: 10px; border-left: 4px solid #00b4d8; border-top: 1px solid rgba(255,255,255,0.05);">
+                <h4 style="margin:0; color:#00b4d8;">1. CNN Fear & Greed Index</h4>
                 <p style="font-size: 28px; font-weight: bold; margin: 8px 0 0 0; color:#f8fafc;">68 / 100 <span style="font-size:16px; color:#22c55e;">(Greed)</span></p>
                 <small style="color:#94a3b8;">7 indicatori compositi di propensione al rischio.</small>
             </div>
@@ -188,21 +213,21 @@ if nav == "1. Dashboard Macro & Sentiment":
     with s2:
         st.markdown(
             """
-            <div style="background: rgba(18,26,47,0.7); padding: 18px; border-radius: 10px; border-left: 4px solid #f59e0b;">
+            <div style="background: rgba(18,26,47,0.7); padding: 18px; border-radius: 10px; border-left: 4px solid #f59e0b; border-top: 1px solid rgba(255,255,255,0.05);">
                 <h4 style="margin:0; color:#f59e0b;">2. AAII Bull / Bear Spread</h4>
                 <p style="font-size: 28px; font-weight: bold; margin: 8px 0 0 0; color:#f8fafc;">+14.2% <span style="font-size:16px; color:#f59e0b;">(Bullish Bias)</span></p>
-                <small style="color:#94a3b8;">Posizionamento sondaggio investitori retail.</small>
+                <small style="color:#94a3b8;">Posizionamento e aspettative investitori retail.</small>
             </div>
             """,
             unsafe_allow_html=True
         )
         st.progress(64)
-        st.caption("• Bulls: 42.1% | Neutral: 30.0% | Bears: 27.9% (Media Storica Spread: +6.5%)")
+        st.caption("• Bulls: 42.1% | Neutral: 30.0% | Bears: 27.9% (Media Storica: +6.5%)")
 
     with s3:
         st.markdown(
             """
-            <div style="background: rgba(18,26,47,0.7); padding: 18px; border-radius: 10px; border-left: 4px solid #a855f7;">
+            <div style="background: rgba(18,26,47,0.7); padding: 18px; border-radius: 10px; border-left: 4px solid #a855f7; border-top: 1px solid rgba(255,255,255,0.05);">
                 <h4 style="margin:0; color:#a855f7;">3. CBOE Equity Put / Call Ratio</h4>
                 <p style="font-size: 28px; font-weight: bold; margin: 8px 0 0 0; color:#f8fafc;">0.62 <span style="font-size:16px; color:#a855f7;">(Complacency Zone)</span></p>
                 <small style="color:#94a3b8;">Rapporto volumetrico opzioni azionarie USA.</small>
@@ -211,7 +236,7 @@ if nav == "1. Dashboard Macro & Sentiment":
             unsafe_allow_html=True
         )
         st.progress(38)
-        st.caption("• < 0.65: Eccesso Ottimismo | 0.85-1.0: Neutrale | > 1.10: Panico / Copertura")
+        st.caption("• < 0.65: Eccesso Ottimismo | 0.85-1.0: Neutrale | > 1.10: Panico / Hedge")
 
     st.markdown("---")
     st.subheader("📊 Matrice di Raccordo dei 7 Scenari Macro")
@@ -220,7 +245,7 @@ if nav == "1. Dashboard Macro & Sentiment":
             "1. Goldilocks (Espansione + Disinflazione)",
             "2. Rifflazione (Crescita + Inflazione)",
             "3. Stagflazione (Rallentamento + Inflazione)",
-            "4. Deflazione da Shock (Crollo Prezzi)",
+            "4. Deflazione da Shock (Contrazione Prezzi)",
             "5. Fiscal Dominance (Espansione Debito)",
             "6. Credit Crunch (Stretta Finanziaria)",
             "7. Late-Cycle Soft Landing (Rallentamento Ordinato)"
@@ -260,7 +285,7 @@ elif nav == "2. Z-Score & COT Lab":
         lookback = st.radio("Finestra di Normalizzazione Z-Score:", ["1 Anno (52w)", "3 Anni (156w)", "5 Anni (260w)"])
     
     with c2:
-        st.info(f"Asset: **{asset}** | Lookback: **{lookback}**")
+        st.info(f"Asset: **{asset}** | Finestra Lookback: **{lookback}**")
         st.markdown(
             """
             * **Commercials (Hedgers):** Monitoraggio delle coperture reali dei produttori.
