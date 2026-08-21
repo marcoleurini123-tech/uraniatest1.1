@@ -1,8 +1,7 @@
 import streamlit as st
-import os
+from pathlib import Path
 
 def check_authentication() -> bool:
-    """Gestisce il login isolato senza appesantire la dashboard principale."""
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
 
@@ -14,7 +13,7 @@ def check_authentication() -> bool:
         <style>
         .stApp {
             background-color: #030712 !important;
-            background-image: radial-gradient(circle at 50% 30%, #0f172a 0%, #030712 100%) !important;
+            background-image: radial-gradient(circle at 50% 35%, #0f172a 0%, #030712 100%) !important;
         }
         .login-card {
             background: rgba(15, 23, 42, 0.95);
@@ -47,12 +46,16 @@ def check_authentication() -> bool:
     st.markdown("<br><br>", unsafe_allow_html=True)
     _, col_center, _ = st.columns([1, 1.3, 1])
 
+    # Percorso assoluto robusto per Streamlit Cloud
+    root_dir = Path(__file__).resolve().parent.parent
+    logo_path = root_dir / "urania_logo.png"
+    if not logo_path.exists():
+        logo_path = root_dir / "urania.png"
+
     with col_center:
         st.markdown('<div class="login-card">', unsafe_allow_html=True)
-        if os.path.exists("urania.png"):
-            col_l, col_img, col_r = st.columns([1, 2, 1])
-            with col_img:
-                st.image("urania.png", use_container_width=True)
+        if logo_path.exists():
+            st.image(str(logo_path), use_container_width=True)
         else:
             st.markdown('<div style="font-size: 48px; margin-bottom: 8px;">🛡️</div>', unsafe_allow_html=True)
 
@@ -76,6 +79,6 @@ def check_authentication() -> bool:
                 st.session_state.authenticated = True
                 st.rerun()
             else:
-                st.error("Credenziali non corrette.")
+                st.error("Credenziali errate.")
 
     return False
