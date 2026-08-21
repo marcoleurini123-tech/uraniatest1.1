@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -12,13 +13,12 @@ def load_nfp_dataset():
     base_nfp = np.random.normal(165, 80, size=len(dates))
     
     df = pd.DataFrame({
-        "Date": dates,
+        "Date": pd.to_datetime(dates).astype("datetime64[ns]"),
         "1st": base_nfp,
         "2nd": base_nfp + np.random.normal(-10, 25, size=len(dates)),
         "3rd": base_nfp + np.random.normal(-15, 30, size=len(dates))
     })
     
-    # Rilevazioni storiche reali di contrazione (come su Quant-Rea)
     shocks = {
         "2026-02": -92.0, "2020-07": -23.0, "2020-03": -701.0, 
         "2020-04": -20537.0, "2020-12": -140.0, "2017-09": -33.0, 
@@ -39,20 +39,20 @@ def load_spx_log_series():
         if spx.empty:
             dates = pd.date_range(start="1970-01-01", end=datetime.now(), freq="MS")
             p = 100 * np.exp(np.linspace(0, 4.0, len(dates)))
-            return pd.DataFrame({"Date": dates, "Close": p, "Log_Close": np.log(p)})
+            return pd.DataFrame({"Date": pd.to_datetime(dates).astype("datetime64[ns]"), "Close": p, "Log_Close": np.log(p)})
             
         if isinstance(spx.columns, pd.MultiIndex):
             spx.columns = spx.columns.get_level_values(0)
             
         df_spx = spx[["Close"]].reset_index()
         df_spx.columns = ["Date", "Close"]
-        df_spx["Date"] = pd.to_datetime(df_spx["Date"]).dt.tz_localize(None).dt.normalize()
+        df_spx["Date"] = pd.to_datetime(df_spx["Date"]).dt.tz_localize(None).astype("datetime64[ns]")
         df_spx["Log_Close"] = np.log(df_spx["Close"].replace(0, np.nan))
         return df_spx.dropna()
     except Exception:
         dates = pd.date_range(start="1970-01-01", end=datetime.now(), freq="MS")
         p = 100 * np.exp(np.linspace(0, 4.0, len(dates)))
-        return pd.DataFrame({"Date": dates, "Close": p, "Log_Close": np.log(p)})
+        return pd.DataFrame({"Date": pd.to_datetime(dates).astype("datetime64[ns]"), "Close": p, "Log_Close": np.log(p)})
 
 def render_nfp_study_view():
     st.markdown(
@@ -68,24 +68,24 @@ def render_nfp_study_view():
     df_nfp = load_nfp_dataset()
     df_spx = load_spx_log_series()
 
-    # Controlli Interattivi (Layout Quant-Rea)
-    col_c1, col_c2, col_c3 = st.columns([2, 2, 1])
-    col_choice = col_c1.selectbox("Colonna:", ["1st", "2nd", "3rd", "2nd - 1st"], index=0)
-    soglia = col_c2.number_input("Soglia <", value=0.0, step=10.0)
-    col_c3.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-    col_c3.button("Calcola", use_container_width=True)
+    c1, c2, c3 = st.columns([2, 2, 1])
+    col_choice = c1.selectbox("Colonna:", ["1st", "2nd", "3rd", "2nd - 1st"], index=0)
+    soglia = c2.number_input("Soglia <", value=0.0, step=10.0)
+    c3.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+    c3.button("Calcola", use_container_width=True)
 
-    # Allineamento temporale nearest
+    df_nfp_s = df_nfp.sort_values("Date")
+    df_spx_s = df_spx.sort_values("Date")
+    
     merged = pd.merge_asof(
-        df_nfp.sort_values("Date"),
-        df_spx.sort_values("Date"),
+        df_nfp_s,
+        df_spx_s,
         on="Date",
         direction="nearest"
     )
 
     triggered = merged[merged[col_choice] < soglia].copy()
 
-    # Grafico Overlay Log-Price SPX
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=df_spx["Date"],
@@ -119,7 +119,6 @@ def render_nfp_study_view():
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # Tabella Storica
     st.markdown("#### 📋 Tabella Rilevazioni Storiche")
     if not triggered.empty:
         table_df = triggered[["Date", col_choice, "Close"]].copy()
@@ -129,4 +128,4 @@ def render_nfp_study_view():
         table_df = table_df.drop(columns=["Close", col_choice]).sort_values("Date", ascending=False)
         st.dataframe(table_df, use_container_width=True, hide_index=True)
     else:
-        st.info("Nessuna data rispetta i criteri impostati.")
+        st.info("Nessuna rilevazione storica soddisfa i criteri impostati.")
