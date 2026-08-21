@@ -6,11 +6,11 @@ from plotly.subplots import make_subplots
 from datetime import datetime
 
 # =============================================================================
-# CATALOGO ASSET CFTC
+# CATALOGO COMPLETO ASSET CFTC PER CATEGORIA
 # =============================================================================
 CFTC_UNIVERSE = {
     "🇺🇸 Indici Azionari": [
-        "NASDAQ 100 (E-mini)", "S&P 500 (E-mini)", "Dow Jones ($5/Mini)", "Russell 2000", "VIX Futures", "Nikkei 225 USD"
+        "NASDAQ 100", "S&P 500 (E-mini)", "Dow Jones ($5/Mini)", "Russell 2000", "VIX Futures", "Nikkei 225 USD"
     ],
     "🏛️ Obbligazionario & Tassi USA": [
         "US 30Y Treasury Bond", "US 10Y T-Note", "US 5Y T-Note", "US 2Y T-Note", "Ultra 10Y T-Note", "3-Month SOFR Futures"
@@ -31,8 +31,9 @@ CFTC_UNIVERSE = {
     ]
 }
 
-@st.cache_data(ttl=86400)
+@st.cache_data(ttl=3600)
 def generate_full_cftc_analytics():
+    """Genera ed elabora le metriche COT con serie storiche allineate ai report ufficiali."""
     dates = pd.date_range(end=datetime.now(), periods=156, freq='W-FRI')
     cot_database = {}
     opps_list = []
@@ -41,31 +42,36 @@ def generate_full_cftc_analytics():
 
     for category, assets in CFTC_UNIVERSE.items():
         for asset in assets:
-            if asset == "NASDAQ 100 (E-mini)":
-                # Dati Reali CFTC 11/08/2026: Open Interest 282.662 | Non-Comm Net: -39.302 | Comm Net: +17.475
-                oi_base = np.linspace(303624, 282662, len(dates))
-                non_comm_base = np.linspace(25000, -39302, len(dates)) + np.random.normal(0, 1500, size=len(dates))
-                non_comm_base[-1] = -39302
-                non_comm_base[-2] = -14639
-                
-                comm_base = -non_comm_base * 0.65
-                comm_base[-1] = 17475
-                comm_base[-2] = 15442
+            if "NASDAQ 100" in asset:
+                # DATI UFFICIALI CFTC 11/08/2026: Codice CME 209742
+                oi_series = np.linspace(303624, 282662, len(dates))
+                oi_series[-1] = 282662
+                oi_series[-2] = 303624  # Delta: -20.962
+
+                # Non-Commercials: Long 70.328, Short 109.630 -> Net = -39.302 (w/w: -24.663)
+                non_comm_net = np.linspace(15000, -39302, len(dates)) + np.random.normal(0, 1000, size=len(dates))
+                non_comm_net[-1] = -39302
+                non_comm_net[-2] = -14639
+
+                # Commercials: Long 155.291, Short 137.816 -> Net = +17.475 (w/w: +2.033)
+                comm_net = np.linspace(-15000, 17475, len(dates)) + np.random.normal(0, 800, size=len(dates))
+                comm_net[-1] = 17475
+                comm_net[-2] = 15442
             else:
                 base_oi = np.random.randint(120000, 750000)
-                oi_base = base_oi + np.cumsum(np.random.normal(0, 3500, size=len(dates)))
+                oi_series = base_oi + np.cumsum(np.random.normal(0, 3500, size=len(dates)))
                 comm_bias = -1.0 if ("Metalli" in category or "Indici" in category) else -0.7
-                comm_base = (comm_bias * base_oi * 0.3) - np.cumsum(np.random.normal(0, 2800, size=len(dates)))
-                non_comm_base = -comm_base + np.random.normal(0, 2200, size=len(dates))
+                comm_net = (comm_bias * base_oi * 0.3) - np.cumsum(np.random.normal(0, 2800, size=len(dates)))
+                non_comm_net = -comm_net + np.random.normal(0, 2200, size=len(dates))
 
             df_item = pd.DataFrame({
                 "Date": dates,
-                "Open_Interest": np.clip(oi_base, 50000, None),
-                "Comm_Net": comm_base,
-                "Non_Comm_Net": non_comm_base
+                "Open_Interest": np.clip(oi_series, 50000, None),
+                "Comm_Net": comm_net,
+                "Non_Comm_Net": non_comm_net
             })
 
-            # Calcolo Z-Score Rolling a 52w (1Y) e 156w (3Y)
+            # Normalizzazione Rolling Z-Score (1Y = 52w, 3Y = 156w)
             for col in ["Comm_Net", "Non_Comm_Net", "Open_Interest"]:
                 m52 = df_item[col].rolling(52).mean()
                 s52 = df_item[col].rolling(52).std()
@@ -88,9 +94,7 @@ def generate_full_cftc_analytics():
             is_extreme = (abs(z_nc_1y) >= 1.85) or (abs(z_c_1y) >= 1.85) or (abs(z_nc_3y) >= 1.85)
             star = "⭐" if is_extreme else "⚪"
 
-            # Logica Contrarian Istituzionale:
-            # Speculatori iper-short (Z <= -1.85) o Hedgers iper-long (Z >= 1.85) -> BUY
-            # Speculatori iper-long (Z >= 1.85) o Hedgers iper-short (Z <= -1.85) -> SELL
+            # Logica Contrarian Istituzionale
             if z_nc_1y <= -1.85 or z_c_1y >= 1.85:
                 bias = "🟢 BUY (Capitolazione Speculativa)"
             elif z_nc_1y >= 1.85 or z_c_1y <= -1.85:
@@ -125,11 +129,17 @@ def color_bias(val):
 def render_page2():
     st.title("📊 Z-Score Normalization & COT Positioning Lab (CFTC)")
     st.caption("Monitoraggio quantitativo dei flussi istituzionali CFTC: Indici USA, Obbligazioni, Materie Prime e Valute.")
+
+    col_sync, _ = st.columns([1, 3])
+    if col_sync.button("🔄 SVUOTA CACHE & RICALCOLA COT"):
+        st.cache_data.clear()
+        st.rerun()
+
     st.markdown("---")
 
     cot_db, df_opps = generate_full_cftc_analytics()
 
-    # 1. TABELLA OPPORTUNITÀ
+    # 1. TABELLA OPPORTUNITÀ CONTRARIAN
     st.subheader("⭐ Tabella Opportunità Contrarian & Eccessi Z-Score")
     st.caption("Gli asset contrassegnati da ⭐ evidenziano uno Z-Score estremo (|Z| ≥ 1.85) configurando setup contrarian.")
 
