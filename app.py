@@ -5,7 +5,6 @@ import requests
 import yfinance as yf
 from core.auth import check_authentication
 
-# Configurazione Dashboard
 st.set_page_config(
     page_title="URANIA SYSTEM",
     page_icon="🛡️",
@@ -43,12 +42,12 @@ def send_telegram_alert(ticker: str, details: dict) -> tuple[bool, str]:
         r = requests.post(url, json=payload, timeout=10)
         res = r.json()
         if r.status_code == 200 and res.get("ok"):
-            return True, "Alert inoltrato con successo al canale URANIA."
+            return True, "Alert inoltrato al canale URANIA."
         return False, f"Errore Telegram: {res.get('description', 'Unauthorized')}"
     except Exception as e:
         return False, f"Errore connessione: {str(e)}"
 
-# Engine Calcolo POC
+# Engine POC su Dati EOD
 def calculate_eod_poc(df: pd.DataFrame, bins: int = 50) -> float:
     if df.empty or 'Close' not in df or 'Volume' not in df:
         return 0.0
@@ -83,7 +82,7 @@ with st.sidebar:
         st.rerun()
 
 # ==============================================================================
-# MODULO 1: DASHBOARD MACRO, LIQUIDITÀ & LE 3 FINESTRE SENTIMENT
+# MODULO 1: MACRO REGIMES & 3 FINESTRE SENTIMENT
 # ==============================================================================
 if nav == "1. Dashboard Macro & Sentiment":
     st.title("🌐 Macroeconomic Regimes & Market Sentiment")
@@ -124,7 +123,7 @@ if nav == "1. Dashboard Macro & Sentiment":
             <div style="background: rgba(18,26,47,0.7); padding: 18px; border-radius: 10px; border-left: 4px solid #f59e0b;">
                 <h4 style="margin:0; color:#f59e0b;">2. AAII Bull / Bear Spread</h4>
                 <p style="font-size: 28px; font-weight: bold; margin: 8px 0 0 0; color:#f8fafc;">+14.2% <span style="font-size:16px; color:#f59e0b;">(Bullish Bias)</span></p>
-                <small style="color:#94a3b8;">Posizionamento e aspettative investitori retail.</small>
+                <small style="color:#94a3b8;">Posizionamento sondaggio investitori retail.</small>
             </div>
             """,
             unsafe_allow_html=True
