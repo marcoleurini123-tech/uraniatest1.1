@@ -5,6 +5,9 @@ import requests
 import yfinance as yf
 from core.auth import check_authentication
 
+# -----------------------------------------------------------------------------
+# CONFIGURAZIONE GENERALE STREAMLIT
+# -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="URANIA SYSTEM",
     page_icon="🛡️",
@@ -47,7 +50,7 @@ def send_telegram_alert(ticker: str, details: dict) -> tuple[bool, str]:
     except Exception as e:
         return False, f"Errore connessione: {str(e)}"
 
-# Engine POC su Dati EOD
+# Engine Calcolo Volume Profile (POC)
 def calculate_eod_poc(df: pd.DataFrame, bins: int = 50) -> float:
     if df.empty or 'Close' not in df or 'Volume' not in df:
         return 0.0
@@ -60,6 +63,70 @@ def calculate_eod_poc(df: pd.DataFrame, bins: int = 50) -> float:
     return float(price_bins[np.argmax(vol_hist)])
 
 # -----------------------------------------------------------------------------
+# STYLING CSS SPECIFICO (DARK TECH QUANTASTE THEME)
+# -----------------------------------------------------------------------------
+st.markdown(
+    """
+    <style>
+    .macro-card {
+        background-color: #0b1320;
+        border: 1px solid #1e293b;
+        border-radius: 12px;
+        padding: 22px;
+        height: 100%;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }
+    .card-header {
+        font-size: 19px;
+        font-weight: 700;
+        color: #f8fafc;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 18px;
+    }
+    .badge-stagflation {
+        background-color: #d97706;
+        color: #ffffff;
+        font-weight: 800;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 13px;
+        letter-spacing: 0.5px;
+    }
+    .badge-neutral {
+        background-color: #f59e0b;
+        color: #1e293b;
+        font-weight: 800;
+        padding: 3px 8px;
+        border-radius: 6px;
+        font-size: 12px;
+    }
+    .stat-pill {
+        background-color: #111e33;
+        border: 1px solid #1e293b;
+        border-radius: 8px;
+        padding: 10px 8px;
+        text-align: center;
+    }
+    .circle-metric {
+        width: 62px;
+        height: 62px;
+        border-radius: 50%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        font-size: 17px;
+        margin: auto;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+# -----------------------------------------------------------------------------
 # SIDEBAR MODULARE (LAZY LOADING)
 # -----------------------------------------------------------------------------
 with st.sidebar:
@@ -68,7 +135,7 @@ with st.sidebar:
     nav = st.radio(
         "Seleziona Modulo Operativo:",
         [
-            "1. Dashboard Macro & Sentiment",
+            "1. Panoramica Macro e Mercati",
             "2. Z-Score & COT Lab",
             "3. Quant Lab (Archivio Studi)",
             "4. Protocol Screener & Telegram"
@@ -82,101 +149,219 @@ with st.sidebar:
         st.rerun()
 
 # ==============================================================================
-# MODULO 1: MACRO REGIMES & 3 FINESTRE SENTIMENT
+# MODULO 1: PANORAMICA MACRO E MERCATI (QUANTASTE 3-COLUMN LAYOUT)
 # ==============================================================================
-if nav == "1. Dashboard Macro & Sentiment":
-    st.title("🌐 Macroeconomic Regimes & Market Sentiment")
-    st.caption("Monitoraggio integrato dei 7 Scenari Macro, Liquidità Globale e i 3 Pilastri di Sentiment.")
-    st.markdown("---")
+if nav == "1. Panoramica Macro e Mercati":
+    st.title("Panoramica Macro e Mercati")
+    st.caption("Intelligence quantitativa EOD su regimi macro, flussi di sentiment e propensione al rischio.")
+    st.markdown("<br>", unsafe_allow_html=True)
 
-    # 1. Regimi Macro & Liquidità Fed
-    st.subheader("🏛️ Regimi Macroeconomici & Liquidità Netta Fed")
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Regime Macro Attivo", "Goldilocks / Disinflazione", "+0.42 pt")
-    m2.metric("Net Fed Liquidity (WALCL-TGA-RRP)", "$6.12T", "+$24B w/w")
-    m3.metric("Treasury General Account", "$748B", "-$12B")
-    m4.metric("Reverse Repo (RRP)", "$320B", "-$8B")
+    col1, col2, col3 = st.columns(3)
 
-    st.markdown("---")
-
-    # 2. Le 3 Finestre del Sentiment di Mercato
-    st.subheader("🧭 Le 3 Finestre del Sentiment di Mercato")
-    s1, s2, s3 = st.columns(3)
-
-    with s1:
+    # -------------------------------------------------------------------------
+    # FINESTRA 1: REGIME ECONOMICO PREDOMINANTE
+    # -------------------------------------------------------------------------
+    with col1:
         st.markdown(
             """
-            <div style="background: rgba(18,26,47,0.7); padding: 18px; border-radius: 10px; border-left: 4px solid #00b4d8;">
-                <h4 style="margin:0; color:#00b4d8;">1. CNN Fear & Greed Index</h4>
-                <p style="font-size: 28px; font-weight: bold; margin: 8px 0 0 0; color:#f8fafc;">68 / 100 <span style="font-size:16px; color:#22c55e;">(Greed)</span></p>
-                <small style="color:#94a3b8;">7 indicatori compositi di propensione al rischio.</small>
+            <div class="macro-card">
+                <div class="card-header">🌐 Regime Economico Predominante</div>
+                <div style="font-size: 11px; color: #94a3b8; letter-spacing: 0.5px; font-weight: 600;">REGIME DOMINANTE</div>
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 6px; margin-bottom: 12px;">
+                    <div style="font-size: 18px; font-weight: 700; color: #f8fafc;">🇺🇸 USA</div>
+                    <div class="badge-stagflation">STAGFLAZIONE</div>
+                    <div style="font-size: 26px; font-weight: 800; color: #f8fafc;">66<span style="font-size: 16px; color: #94a3b8;">%</span></div>
+                </div>
+                <!-- Barra di Confidenza -->
+                <div style="height: 6px; border-radius: 3px; background: linear-gradient(90deg, #ef4444 0%, #f59e0b 50%, #10b981 100%); margin-bottom: 20px;"></div>
+                <!-- Regimi Internazionali -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 22px;">
+                    <div class="stat-pill">
+                        <div style="font-size: 10px; color: #94a3b8;">🇪🇺 Europa</div>
+                        <div style="color: #10b981; font-weight: 700; font-size: 11px; margin: 3px 0;">REFLAZIONE</div>
+                        <div style="font-weight: 800; font-size: 14px;">72%</div>
+                    </div>
+                    <div class="stat-pill">
+                        <div style="font-size: 10px; color: #94a3b8;">🇨🇦 Canada</div>
+                        <div style="color: #f59e0b; font-weight: 700; font-size: 11px; margin: 3px 0;">STAGFLAZ.</div>
+                        <div style="font-weight: 800; font-size: 14px;">68%</div>
+                    </div>
+                    <div class="stat-pill">
+                        <div style="font-size: 10px; color: #94a3b8;">🇨🇳 Cina</div>
+                        <div style="color: #f59e0b; font-weight: 700; font-size: 11px; margin: 3px 0;">STAGFLAZ.</div>
+                        <div style="font-weight: 800; font-size: 14px;">59%</div>
+                    </div>
+                </div>
+                <!-- Asset Class Regimes (Gauges Circolari) -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 4px; text-align: center;">
+                    <div>
+                        <div class="circle-metric" style="border: 4px solid #f59e0b; color: #f8fafc;">69%</div>
+                        <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">Obbligazioni</div>
+                    </div>
+                    <div>
+                        <div class="circle-metric" style="border: 4px solid #f59e0b; color: #f8fafc;">67%</div>
+                        <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">Materie Prime</div>
+                    </div>
+                    <div>
+                        <div class="circle-metric" style="border: 4px solid #f59e0b; color: #f8fafc;">64%</div>
+                        <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">Stocks</div>
+                    </div>
+                    <div>
+                        <div class="circle-metric" style="border: 4px solid #ef4444; color: #ef4444;">25%</div>
+                        <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">Crypto</div>
+                    </div>
+                </div>
             </div>
             """,
             unsafe_allow_html=True
         )
-        st.progress(68)
-        st.caption("• 0-25: Extreme Fear | 25-45: Fear | 55-75: Greed | 75-100: Extreme Greed")
 
-    with s2:
+    # -------------------------------------------------------------------------
+    # FINESTRA 2: SMART QUANT SENTIMENT
+    # -------------------------------------------------------------------------
+    with col2:
         st.markdown(
             """
-            <div style="background: rgba(18,26,47,0.7); padding: 18px; border-radius: 10px; border-left: 4px solid #f59e0b;">
-                <h4 style="margin:0; color:#f59e0b;">2. AAII Bull / Bear Spread</h4>
-                <p style="font-size: 28px; font-weight: bold; margin: 8px 0 0 0; color:#f8fafc;">+14.2% <span style="font-size:16px; color:#f59e0b;">(Bullish Bias)</span></p>
-                <small style="color:#94a3b8;">Posizionamento sondaggio investitori retail.</small>
+            <div class="macro-card">
+                <div class="card-header">🧭 Smart Quant Sentiment</div>
+                <div style="font-size: 11px; color: #94a3b8; letter-spacing: 0.5px; font-weight: 600;">SENTIMENT DI MERCATO</div>
+                <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 4px; margin-bottom: 12px;">
+                    <div class="badge-neutral">NEUTRAL</div>
+                    <div style="font-size: 26px; font-weight: 800; color: #f8fafc;">21<span style="font-size: 16px; color: #94a3b8;">%</span></div>
+                </div>
+                <!-- Barra Tri-Segmento -->
+                <div style="height: 6px; border-radius: 3px; background: linear-gradient(90deg, #ef4444 0%, #f59e0b 50%, #10b981 100%); margin-bottom: 6px;"></div>
+                <div style="display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-bottom: 16px;">
+                    <span>Ext. Sell</span>
+                    <span>Hold</span>
+                    <span>Ext. Buy</span>
+                </div>
+                <!-- Ripartizione Posizioni -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 20px;">
+                    <div class="stat-pill">
+                        <div style="font-size: 10px; color: #94a3b8;">Sell</div>
+                        <div style="color: #ef4444; font-weight: 800; font-size: 15px; margin-top: 2px;">↓ 43%</div>
+                    </div>
+                    <div class="stat-pill">
+                        <div style="font-size: 10px; color: #94a3b8;">Hold</div>
+                        <div style="color: #f59e0b; font-weight: 800; font-size: 15px; margin-top: 2px;">21%</div>
+                    </div>
+                    <div class="stat-pill">
+                        <div style="font-size: 10px; color: #94a3b8;">Buy</div>
+                        <div style="color: #10b981; font-weight: 800; font-size: 15px; margin-top: 2px;">↑ 36%</div>
+                    </div>
+                </div>
+                <!-- Dettaglio Segnali Bar Chart -->
+                <div style="font-size: 11px; color: #94a3b8; font-weight: 600; margin-bottom: 8px;">DISTRIBUZIONE SEGNALI</div>
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    <div style="display: flex; align-items: center; font-size: 11px;">
+                        <span style="width: 75px; color: #94a3b8;">Strong Buy</span>
+                        <div style="flex: 1; background: #111e33; height: 12px; border-radius: 3px; overflow: hidden; margin: 0 8px;">
+                            <div style="width: 9%; background: #10b981; height: 100%;"></div>
+                        </div>
+                        <span style="width: 28px; text-align: right; font-weight: 700;">9%</span>
+                    </div>
+                    <div style="display: flex; align-items: center; font-size: 11px;">
+                        <span style="width: 75px; color: #94a3b8;">Buy</span>
+                        <div style="flex: 1; background: #111e33; height: 12px; border-radius: 3px; overflow: hidden; margin: 0 8px;">
+                            <div style="width: 27%; background: #10b981; height: 100%;"></div>
+                        </div>
+                        <span style="width: 28px; text-align: right; font-weight: 700;">27%</span>
+                    </div>
+                    <div style="display: flex; align-items: center; font-size: 11px;">
+                        <span style="width: 75px; color: #94a3b8;">Hold</span>
+                        <div style="flex: 1; background: #111e33; height: 12px; border-radius: 3px; overflow: hidden; margin: 0 8px;">
+                            <div style="width: 21%; background: #f59e0b; height: 100%;"></div>
+                        </div>
+                        <span style="width: 28px; text-align: right; font-weight: 700;">21%</span>
+                    </div>
+                    <div style="display: flex; align-items: center; font-size: 11px;">
+                        <span style="width: 75px; color: #94a3b8;">Sell</span>
+                        <div style="flex: 1; background: #111e33; height: 12px; border-radius: 3px; overflow: hidden; margin: 0 8px;">
+                            <div style="width: 36%; background: #ef4444; height: 100%;"></div>
+                        </div>
+                        <span style="width: 28px; text-align: right; font-weight: 700;">36%</span>
+                    </div>
+                    <div style="display: flex; align-items: center; font-size: 11px;">
+                        <span style="width: 75px; color: #94a3b8;">Strong Sell</span>
+                        <div style="flex: 1; background: #111e33; height: 12px; border-radius: 3px; overflow: hidden; margin: 0 8px;">
+                            <div style="width: 7%; background: #ef4444; height: 100%;"></div>
+                        </div>
+                        <span style="width: 28px; text-align: right; font-weight: 700;">7%</span>
+                    </div>
+                </div>
             </div>
             """,
             unsafe_allow_html=True
         )
-        st.progress(64)
-        st.caption("• Bulls: 42.1% | Neutral: 30.0% | Bears: 27.9% (Media Storica: +6.5%)")
 
-    with s3:
+    # -------------------------------------------------------------------------
+    # FINESTRA 3: RISK ON / RISK OFF
+    # -------------------------------------------------------------------------
+    with col3:
         st.markdown(
             """
-            <div style="background: rgba(18,26,47,0.7); padding: 18px; border-radius: 10px; border-left: 4px solid #a855f7;">
-                <h4 style="margin:0; color:#a855f7;">3. CBOE Equity Put / Call Ratio</h4>
-                <p style="font-size: 28px; font-weight: bold; margin: 8px 0 0 0; color:#f8fafc;">0.62 <span style="font-size:16px; color:#a855f7;">(Complacency Zone)</span></p>
-                <small style="color:#94a3b8;">Rapporto volumetrico opzioni azionarie USA.</small>
+            <div class="macro-card">
+                <div class="card-header">📉 Risk On / Risk Off</div>
+                <div style="font-size: 11px; color: #94a3b8; letter-spacing: 0.5px; font-weight: 600;">PROPENSIONE AL RISCHIO</div>
+                <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 4px; margin-bottom: 12px;">
+                    <div class="badge-neutral">NEUTRAL</div>
+                    <div style="font-size: 26px; font-weight: 800; color: #f8fafc;">50<span style="font-size: 16px; color: #94a3b8;">%</span></div>
+                </div>
+                <!-- Barra Risk Meter -->
+                <div style="height: 6px; border-radius: 3px; background: linear-gradient(90deg, #ef4444 0%, #f59e0b 50%, #10b981 100%); margin-bottom: 6px;"></div>
+                <div style="display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-bottom: 16px;">
+                    <span>Ext. Risk Off</span>
+                    <span>Neutral</span>
+                    <span>Ext. Risk On</span>
+                </div>
+                <!-- Asset Allocation Ripartizione -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 16px;">
+                    <div class="stat-pill">
+                        <div style="font-size: 10px; color: #94a3b8;">Risk Assets</div>
+                        <div style="font-weight: 800; font-size: 15px; color: #f8fafc; margin-top: 2px;">50%</div>
+                    </div>
+                    <div class="stat-pill">
+                        <div style="font-size: 10px; color: #94a3b8;">Difensivo</div>
+                        <div style="font-weight: 800; font-size: 15px; color: #f8fafc; margin-top: 2px;">30%</div>
+                    </div>
+                    <div class="stat-pill">
+                        <div style="font-size: 10px; color: #94a3b8;">Cash</div>
+                        <div style="font-weight: 800; font-size: 15px; color: #f8fafc; margin-top: 2px;">20%</div>
+                    </div>
+                </div>
+                <!-- Breakdown Indicatori Quantitativi -->
+                <div style="font-size: 11px; color: #94a3b8; font-weight: 600; margin-bottom: 8px;">DETTAGLIO SEGNALI QUANTITATIVI</div>
+                <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px;">
+                    <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #1e293b; padding-bottom: 3px;">
+                        <span style="color: #94a3b8;">TIP Momentum</span>
+                        <span style="font-weight: 700; color: #f8fafc;">0/20</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #1e293b; padding-bottom: 3px;">
+                        <span style="color: #94a3b8;">VIX Term Structure</span>
+                        <span style="font-weight: 700; color: #10b981;">+20/20</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #1e293b; padding-bottom: 3px;">
+                        <span style="color: #94a3b8;">Credit Spreads (HYG/LQD)</span>
+                        <span style="font-weight: 700; color: #10b981;">+10/10</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #1e293b; padding-bottom: 3px;">
+                        <span style="color: #94a3b8;">Consumer Appetite (XLY/XLP)</span>
+                        <span style="font-weight: 700; color: #10b981;">+15/15</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #1e293b; padding-bottom: 3px;">
+                        <span style="color: #94a3b8;">Risk Flows (IWM/SPY)</span>
+                        <span style="font-weight: 700; color: #10b981;">+10/15</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; padding-bottom: 3px;">
+                        <span style="color: #94a3b8;">Primary Trend</span>
+                        <span style="font-weight: 700; color: #10b981;">+20/20</span>
+                    </div>
+                </div>
             </div>
             """,
             unsafe_allow_html=True
         )
-        st.progress(38)
-        st.caption("• < 0.65: Eccesso Ottimismo | 0.85-1.0: Neutrale | > 1.10: Panico / Hedge")
-
-    st.markdown("---")
-    st.subheader("📊 Matrice dei 7 Scenari Macro")
-    st.dataframe(pd.DataFrame({
-        "Scenario": [
-            "1. Goldilocks (Espansione + Disinflazione)",
-            "2. Rifflazione (Crescita + Inflazione)",
-            "3. Stagflazione (Rallentamento + Inflazione)",
-            "4. Deflazione da Shock (Contrazione Prezzi)",
-            "5. Fiscal Dominance (Espansione Debito)",
-            "6. Credit Crunch (Stretta Finanziaria)",
-            "7. Late-Cycle Soft Landing (Rallentamento Ordinato)"
-        ],
-        "Probabilità": ["40%", "25%", "15%", "5%", "10%", "3%", "2%"],
-        "Asset Favoriti": [
-            "Growth, Tech, Corporate Bond",
-            "Commodities, Energia, TIPS",
-            "Oro, Cacao, Cash, Covered Call",
-            "Treasuries Lunghi, Dollaro",
-            "Breakeven Inflattivi, Difesa",
-            "BTP Breve Termine, Liquidità",
-            "Quality Dividends, Healthcare"
-        ],
-        "Asset Sfavoriti": [
-            "Commodities pure",
-            "Long Duration Bonds",
-            "Growth ad alto multiplo",
-            "High Yield, Small Caps",
-            "Growth senza utili",
-            "Azionario ciclico",
-            "Titoli ad alta leva"
-        ]
-    }), use_container_width=True, hide_index=True)
 
 # ==============================================================================
 # MODULO 2: Z-SCORE & COT LAB
