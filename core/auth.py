@@ -2,14 +2,13 @@ import streamlit as st
 import os
 
 def check_authentication() -> bool:
-    """Verifica e gestisce la sessione di accesso con interfaccia protetta."""
+    """Gestisce il login isolato senza appesantire la dashboard principale."""
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
 
     if st.session_state.authenticated:
         return True
 
-    # Styling Dark & Responsive Container
     st.markdown(
         """
         <style>
@@ -21,17 +20,17 @@ def check_authentication() -> bool:
             background: rgba(15, 23, 42, 0.95);
             border: 1px solid rgba(212, 175, 55, 0.35);
             border-radius: 16px;
-            padding: 30px 25px;
+            padding: 30px 20px;
             text-align: center;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
-            margin-bottom: 20px;
         }
         .brand-title {
-            font-size: 32px;
+            font-size: 30px;
             font-weight: 900;
-            letter-spacing: 5px;
+            letter-spacing: 4px;
             color: #f8fafc;
-            margin: 5px 0 0 0;
+            margin-top: 10px;
+            margin-bottom: 2px;
         }
         .brand-motto {
             font-size: 11px;
@@ -50,8 +49,10 @@ def check_authentication() -> bool:
 
     with col_center:
         st.markdown('<div class="login-card">', unsafe_allow_html=True)
-        if os.path.exists("urania_logo.png"):
-            st.image("urania_logo.png", width=180)
+        if os.path.exists("urania.png"):
+            col_l, col_img, col_r = st.columns([1, 2, 1])
+            with col_img:
+                st.image("urania.png", use_container_width=True)
         else:
             st.markdown('<div style="font-size: 48px; margin-bottom: 8px;">🛡️</div>', unsafe_allow_html=True)
 
@@ -59,8 +60,8 @@ def check_authentication() -> bool:
             """
             <div class="brand-title">URANIA</div>
             <div class="brand-motto">PRECISION. CONSISTENCY. GROWTH.</div>
-            <p style="color: #94a3b8; font-size: 13px; margin: 0;">
-                Macro Quantitative Terminal • EOD Engine
+            <p style="color: #94a3b8; font-size: 13px; margin: 0 0 10px 0;">
+                Macro Quantitative Terminal • EOD Execution Engine
             </p>
             </div>
             """,
@@ -75,6 +76,6 @@ def check_authentication() -> bool:
                 st.session_state.authenticated = True
                 st.rerun()
             else:
-                st.error("Credenziali errate.")
+                st.error("Credenziali non corrette.")
 
     return False
