@@ -1,4 +1,5 @@
 import streamlit as st
+from PIL import Image
 from pathlib import Path
 
 def check_authentication() -> bool:
@@ -46,16 +47,14 @@ def check_authentication() -> bool:
     st.markdown("<br><br>", unsafe_allow_html=True)
     _, col_center, _ = st.columns([1, 1.3, 1])
 
-    # Percorso assoluto robusto per Streamlit Cloud
     root_dir = Path(__file__).resolve().parent.parent
-    logo_path = root_dir / "urania_logo.png"
-    if not logo_path.exists():
-        logo_path = root_dir / "urania.png"
+    logo_file = root_dir / "urania_logo.png"
 
     with col_center:
         st.markdown('<div class="login-card">', unsafe_allow_html=True)
-        if logo_path.exists():
-            st.image(str(logo_path), use_container_width=True)
+        if logo_file.exists():
+            img = Image.open(logo_file)
+            st.image(img, use_container_width=True)
         else:
             st.markdown('<div style="font-size: 48px; margin-bottom: 8px;">🛡️</div>', unsafe_allow_html=True)
 
@@ -79,6 +78,6 @@ def check_authentication() -> bool:
                 st.session_state.authenticated = True
                 st.rerun()
             else:
-                st.error("Credenziali errate.")
+                st.error("Credenziali non valide.")
 
     return False
