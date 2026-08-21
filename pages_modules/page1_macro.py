@@ -1,9 +1,10 @@
+import os
+import io
 import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
 import requests
-import io
 import plotly.graph_objects as go
 import plotly.express as px
 
@@ -22,7 +23,8 @@ def fetch_bridge_data():
             df_b['Data'] = pd.to_datetime(df_b['Data'], errors='coerce')
         df_b['Data'] = df_b['Data'].dt.normalize()
         for col in ['Net_Liquidity', 'M2', 'RRP', 'TGA', 'WALCL']:
-            if col in df_b.columns: df_b[col] = pd.to_numeric(df_b[col], errors='coerce')
+            if col in df_b.columns:
+                df_b[col] = pd.to_numeric(df_b[col], errors='coerce')
         return df_b.dropna(subset=['Data', 'Net_Liquidity'])
     except Exception:
         return pd.DataFrame(columns=["Data", "Net_Liquidity", "M2", "RRP", "TGA", "WALCL"])
@@ -41,37 +43,56 @@ def fetch_yahoo_macro(days=120):
         data = yf.download(list(tickers.values()), period=f"{days}d", interval="1d", progress=False)['Close']
         data = data.rename(columns={v: k for k, v in tickers.items()})
         data.index = pd.to_datetime(data.index).tz_localize(None).normalize()
-        if 'MOVE' not in data.columns or data['MOVE'].isna().all() or (data['MOVE'] == 0).all(): data['MOVE'] = 98.4
-        if 'P_C' not in data.columns or data['P_C'].isna().all(): data['P_C'] = 0.82
-        if 'VIX1D' not in data.columns or data['VIX1D'].isna().all(): data['VIX1D'] = data['VIX'] * 0.95
-        if 'US2Y' not in data.columns: data['US2Y'] = data.get('US5Y', 4.2) * 0.96
-        if 'BDRY' not in data.columns or data['BDRY'].isna().all(): data['BDRY'] = 14.20
+        
+        if 'MOVE' not in data.columns or data['MOVE'].isna().all() or (data['MOVE'] == 0).all():
+            data['MOVE'] = 98.4
+        if 'P_C' not in data.columns or data['P_C'].isna().all():
+            data['P_C'] = 0.82
+        if 'VIX1D' not in data.columns or data['VIX1D'].isna().all():
+            data['VIX1D'] = data['VIX'] * 0.95
+        if 'US2Y' not in data.columns:
+            data['US2Y'] = data.get('US5Y', 4.2) * 0.96
+        if 'BDRY' not in data.columns or data['BDRY'].isna().all():
+            data['BDRY'] = 14.20
+            
         return data.reset_index().rename(columns={'Date': 'Data', 'index': 'Data'})
     except Exception:
         return pd.DataFrame(columns=["Data"])
+
+def sync_macro_database():
+    d_y, d_b = fetch_yahoo_macro(120), fetch_bridge_data()
+    try:
+        d_d = pd.read_csv("https://squeezemetrics.com/monitor/static/DIX.csv").tail(45).rename(columns={'date':'Data','dix':'DIX','gex':'GEX'})
+        d_d['Data'] = pd.to_datetime(d_d['Data']).dt.normalize()
+        d_d['DIX'] = d_d['DIX'] * 100
+    except Exception:
+        d_d = pd.DataFrame(columns=["Data", "DIX", "GEX"])
+        
+    new_df = pd.merge(pd.merge(d_y, d_d, on='Data', how='outer'), d_b, on='Data', how='outer').sort_values("Data").ffill(limit=10)
+    new_df.to_csv(DB_FILE, index=False)
+    return new_df
 
 def render_page1():
     st.title("🌐 Macro Intelligence, Liquidità Fed & Monitor Intermarket")
     st.caption("Framework quantitativo EOD integrato: Regimi Macro, Liquidità Fed (QE/QT), Curva dei Rendimenti, Baltic Dry e Ratios.")
 
-    if st.button("🔄 SINCRONIZZA FLUSSI EOD AUTOMATICI"):
+    col_btn, _ = st.columns([1, 3])
+    if col_btn.button("🔄 SINCRONIZZA FLUSSI EOD AUTOMATICI"):
         with st.spinner("Sincronizzazione dati automatici in corso..."):
-            d_y, d_b = fetch_yahoo_macro(120), fetch_bridge_data()
-            try:
-                d_d = pd.read_csv("https://squeezemetrics.com/monitor/static/DIX.csv").tail(45).rename(columns={'date':'Data','dix':'DIX','gex':'GEX'})
-                d_d['Data'] = pd.to_datetime(d_d['Data']).dt.normalize()
-                d_d['DIX'] = d_d['DIX'] * 100
-            except Exception:
-                d_d = pd.DataFrame(columns=["Data", "DIX", "GEX"])
-            new_df = pd.merge(pd.merge(d_y, d_d, on='Data', how='outer'), d_b, on='Data', how='outer').sort_values("Data").ffill(limit=10)
-            new_df.to_csv(DB_FILE, index=False)
+            sync_macro_database()
             st.rerun()
 
+    # Inizializzazione automatica se il DB non esiste
     if not os.path.exists(DB_FILE):
-        st.info("Clicca sul pulsante sopra per sincronizzare il database macro.")
+        with st.spinner("Primo caricamento: creazione database EOD in corso..."):
+            df = sync_macro_database()
+    else:
+        df = pd.read_csv(DB_FILE)
+
+    if df.empty or 'Data' not in df.columns:
+        st.warning("Database vuoto o non allineato. Clicca su 'Sincronizza Flussi EOD'.")
         return
 
-    df = pd.read_csv(DB_FILE)
     df['Data'] = pd.to_datetime(df['Data'])
     df = df.sort_values("Data")
     df['Liq_Delta_5D'] = df['Net_Liquidity'].pct_change(periods=5) * 100.0
@@ -109,11 +130,56 @@ def render_page1():
     st.subheader("🧭 Radar Quantitativo dei Regimi & Sentiment")
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.markdown("""<div style="background:#0b1320; border:1px solid #1e293b; border-radius:12px; padding:20px;"><div style="font-size:18px; font-weight:700; color:#f8fafc;">🌐 Regime Economico Predominante</div><div style="display:flex; justify-content:space-between; margin-top:10px;"><div style="font-size:18px; font-weight:700;">🇺🇸 USA</div><div style="background:#d97706; padding:4px 10px; border-radius:6px; font-weight:800; color:#fff;">STAGFLAZIONE</div><div style="font-size:26px; font-weight:800;">66%</div></div><div style="position:relative; height:6px; border-radius:3px; background:linear-gradient(90deg, #ef4444 0%, #f59e0b 50%, #10b981 100%); margin:12px 0;"><div style="position:absolute; top:-5px; left:66%; width:16px; height:16px; border-radius:50%; background:#fff; border:3px solid #0b1320;"></div></div></div>""", unsafe_allow_html=True)
+        st.markdown(
+            """
+            <div style="background:#0b1320; border:1px solid #1e293b; border-radius:12px; padding:20px;">
+                <div style="font-size:18px; font-weight:700; color:#f8fafc;">🌐 Regime Economico Predominante</div>
+                <div style="display:flex; justify-content:space-between; margin-top:10px;">
+                    <div style="font-size:18px; font-weight:700;">🇺🇸 USA</div>
+                    <div style="background:#d97706; padding:4px 10px; border-radius:6px; font-weight:800; color:#fff;">STAGFLAZIONE</div>
+                    <div style="font-size:26px; font-weight:800;">66%</div>
+                </div>
+                <div style="position:relative; height:6px; border-radius:3px; background:linear-gradient(90deg, #ef4444 0%, #f59e0b 50%, #10b981 100%); margin:12px 0;">
+                    <div style="position:absolute; top:-5px; left:66%; width:16px; height:16px; border-radius:50%; background:#fff; border:3px solid #0b1320;"></div>
+                </div>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
     with col2:
-        st.markdown("""<div style="background:#0b1320; border:1px solid #1e293b; border-radius:12px; padding:20px;"><div style="font-size:18px; font-weight:700; color:#f8fafc;">🧭 Smart Quant Sentiment</div><div style="display:flex; justify-content:space-between; margin-top:10px;"><div style="font-size:18px; font-weight:700;">SENTIMENT</div><div style="background:#f59e0b; padding:3px 8px; border-radius:6px; font-weight:800; color:#1e293b;">NEUTRAL</div><div style="font-size:26px; font-weight:800;">21%</div></div><div style="position:relative; height:6px; border-radius:3px; background:linear-gradient(90deg, #ef4444 0%, #f59e0b 50%, #10b981 100%); margin:12px 0;"><div style="position:absolute; top:-5px; left:21%; width:16px; height:16px; border-radius:50%; background:#fff; border:3px solid #0b1320;"></div></div></div>""", unsafe_allow_html=True)
+        st.markdown(
+            """
+            <div style="background:#0b1320; border:1px solid #1e293b; border-radius:12px; padding:20px;">
+                <div style="font-size:18px; font-weight:700; color:#f8fafc;">🧭 Smart Quant Sentiment</div>
+                <div style="display:flex; justify-content:space-between; margin-top:10px;">
+                    <div style="font-size:18px; font-weight:700;">SENTIMENT</div>
+                    <div style="background:#f59e0b; padding:3px 8px; border-radius:6px; font-weight:800; color:#1e293b;">NEUTRAL</div>
+                    <div style="font-size:26px; font-weight:800;">21%</div>
+                </div>
+                <div style="position:relative; height:6px; border-radius:3px; background:linear-gradient(90deg, #ef4444 0%, #f59e0b 50%, #10b981 100%); margin:12px 0;">
+                    <div style="position:absolute; top:-5px; left:21%; width:16px; height:16px; border-radius:50%; background:#fff; border:3px solid #0b1320;"></div>
+                </div>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
     with col3:
-        st.markdown("""<div style="background:#0b1320; border:1px solid #1e293b; border-radius:12px; padding:20px;"><div style="font-size:18px; font-weight:700; color:#f8fafc;">📉 Risk On / Risk Off</div><div style="display:flex; justify-content:space-between; margin-top:10px;"><div style="font-size:18px; font-weight:700;">PROPENSIONE</div><div style="background:#f59e0b; padding:3px 8px; border-radius:6px; font-weight:800; color:#1e293b;">NEUTRAL</div><div style="font-size:26px; font-weight:800;">50%</div></div><div style="position:relative; height:6px; border-radius:3px; background:linear-gradient(90deg, #ef4444 0%, #f59e0b 50%, #10b981 100%); margin:12px 0;"><div style="position:absolute; top:-5px; left:50%; width:16px; height:16px; border-radius:50%; background:#fff; border:3px solid #0b1320;"></div></div></div>""", unsafe_allow_html=True)
+        st.markdown(
+            """
+            <div style="background:#0b1320; border:1px solid #1e293b; border-radius:12px; padding:20px;">
+                <div style="font-size:18px; font-weight:700; color:#f8fafc;">📉 Risk On / Risk Off</div>
+                <div style="display:flex; justify-content:space-between; margin-top:10px;">
+                    <div style="font-size:18px; font-weight:700;">PROPENSIONE</div>
+                    <div style="background:#f59e0b; padding:3px 8px; border-radius:6px; font-weight:800; color:#1e293b;">NEUTRAL</div>
+                    <div style="font-size:26px; font-weight:800;">50%</div>
+                </div>
+                <div style="position:relative; height:6px; border-radius:3px; background:linear-gradient(90deg, #ef4444 0%, #f59e0b 50%, #10b981 100%); margin:12px 0;">
+                    <div style="position:absolute; top:-5px; left:50%; width:16px; height:16px; border-radius:50%; background:#fff; border:3px solid #0b1320;"></div>
+                </div>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
 
     st.markdown("---")
 
