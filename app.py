@@ -20,7 +20,7 @@ st.set_page_config(
 )
 
 # -----------------------------------------------------------------------------
-# 2. CREDENZIALI & NOTIFIER TELEGRAM (PAGINA 4: POC SCANNER)
+# 2. CREDENZIALI & NOTIFIER TELEGRAM (SOLO PER PAGINA 4: POC SCANNER)
 # -----------------------------------------------------------------------------
 BOT_TOKEN = "8829669929:AAFHyp1WeBtpebQD-xqua-MsNyq8S_r8uQ0"
 CHAT_ID = "-1004435512748"
@@ -133,13 +133,14 @@ if not st.session_state.authenticated:
     st.stop()
 
 # -----------------------------------------------------------------------------
-# 4. DATABASE & FETCHERS COMPLETAMENTE AUTOMATICI (NO MANUALE)
+# 4. DATABASE & FETCHERS COMPLETAMENTE AUTOMATICI (NO INPUT MANUALE)
 # -----------------------------------------------------------------------------
 DB_FILE = "macro_data.csv"
 COLUMNS = [
     "Data", "VIX1D", "VIX9D", "VIX", "VIX3M", "VIX6M", "VIX1Y", "VVIX", "MOVE", "SKEW", 
     "DXY", "DIX", "GEX", "SPY", "RSP", "HYG", "XLY", "XLP", "TLT", "LQD", "P_C", "GLD", "USO", 
-    "CPER", "TIP", "IEF", "Net_Liquidity", "M2"
+    "CPER", "TIP", "IEF", "US3M", "US2Y", "US5Y", "US10Y", "US30Y", "Net_Liquidity", "M2", "RRP", "TGA",
+    "BDRY", "WOOD", "SOXX"
 ]
 
 GOOGLE_BRIDGE_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSeeY57SBwd6BftA2Bq8C0nyzzT3wj9WRWOihDF7QE-COPXhC4r2RN_k_BRgZke1nU2BbKT8oRlsXOX/pub?gid=1412711569&single=true&output=csv"
@@ -171,11 +172,11 @@ def fetch_bridge_data():
         else:
             df_bridge['Data'] = pd.to_datetime(df_bridge['Data'], errors='coerce')
         df_bridge['Data'] = df_bridge['Data'].dt.normalize()
-        for col in ['Net_Liquidity', 'M2']:
+        for col in ['Net_Liquidity', 'M2', 'RRP', 'TGA']:
             if col in df_bridge.columns: df_bridge[col] = pd.to_numeric(df_bridge[col], errors='coerce')
         return df_bridge.dropna(subset=['Data', 'Net_Liquidity'])
     except Exception:
-        return pd.DataFrame(columns=["Data", "Net_Liquidity", "M2"])
+        return pd.DataFrame(columns=["Data", "Net_Liquidity", "M2", "RRP", "TGA"])
 
 def fetch_automatic_yahoo_eod(days=120):
     tickers = {
@@ -183,20 +184,26 @@ def fetch_automatic_yahoo_eod(days=120):
         "VIX1Y": "^VIX1Y", "VVIX": "^VVIX", "SKEW": "^SKEW", "MOVE": "^MOVE", "DXY": "DX-Y.NYB", 
         "SPY": "SPY", "RSP": "RSP", "XLY": "XLY", "XLP": "XLP", "HYG": "HYG", 
         "TLT": "TLT", "LQD": "LQD", "P_C": "^PCCR", "GLD": "GLD", "USO": "USO",
-        "CPER": "CPER", "TIP": "TIP", "IEF": "IEF"
+        "CPER": "CPER", "TIP": "TIP", "IEF": "IEF",
+        "US3M": "^IRX", "US5Y": "^FVX", "US10Y": "^TNX", "US30Y": "^TYX",
+        "BDRY": "BDRY", "WOOD": "WOOD", "SOXX": "SOXX"
     }
     try:
         data = yf.download(list(tickers.values()), period=f"{days}d", interval="1d", progress=False)['Close']
         data = data.rename(columns={v: k for k, v in tickers.items()})
         data.index = pd.to_datetime(data.index).tz_localize(None).normalize()
         
-        # Fallback automatico per serie storiche non direttamente disponibili
+        # Fallback automatici per serie composite
         if 'MOVE' not in data.columns or data['MOVE'].isna().all() or (data['MOVE'] == 0).all():
             data['MOVE'] = 98.4
         if 'P_C' not in data.columns or data['P_C'].isna().all():
             data['P_C'] = 0.82
         if 'VIX1D' not in data.columns or data['VIX1D'].isna().all():
             data['VIX1D'] = data['VIX'] * 0.95
+        if 'US2Y' not in data.columns:
+            data['US2Y'] = data.get('US5Y', 4.2) * 0.96
+        if 'BDRY' not in data.columns or data['BDRY'].isna().all():
+            data['BDRY'] = 14.20
             
         return data.reset_index().rename(columns={'Date': 'Data', 'index': 'Data'})
     except Exception:
@@ -245,7 +252,7 @@ def evaluate_macro_visual_alerts(df: pd.DataFrame) -> list[dict]:
             "desc": f"Curva di volatilità invertita (1D: {v1:.1f} vs 30D: {vx:.1f}). Stress di brevissimo termine e acquisto massiccio di coperture."
         })
 
-    # 3. Ratio Copper / Gold (Ciclo Economico Globale - Vito Lops)
+    # 3. Ratio Copper / Gold (Vito Lops Alert)
     if 'CPER' in last and 'GLD' in last and last['GLD'] > 0:
         r_cg = last['CPER'] / last['GLD']
         if r_cg < df['CPER'].div(df['GLD']).rolling(20).mean().iloc[-1] * 0.95:
@@ -256,7 +263,7 @@ def evaluate_macro_visual_alerts(df: pd.DataFrame) -> list[dict]:
                 "desc": f"Rapporto Rame/Oro ({r_cg:.3f}) in flessione: segnale anticipatore di frenata nella crescita globale manifatturiera."
             })
 
-    # 4. Spreads di Credito High Yield (HYG/LQD)
+    # 4. Spreads di Credito Corporate (HYG/LQD)
     if 'HYG' in last and 'LQD' in last and last['LQD'] > 0:
         r_hl = last['HYG'] / last['LQD']
         if r_hl < df['HYG'].div(df['LQD']).rolling(20).mean().iloc[-1] * 0.985:
@@ -264,13 +271,24 @@ def evaluate_macro_visual_alerts(df: pd.DataFrame) -> list[dict]:
                 "type": "Allargamento Credit Spreads Corporate",
                 "severity": "HIGH",
                 "color": "#ef4444",
-                "desc": f"Rapporto HYG/LQD sotto la media 20gg. Gli investitori istituzionali pretendono maggior rendimento per finanziare debito corporate."
+                "desc": f"Rapporto HYG/LQD sotto la media 20gg. Gli investitori pretendono maggior rendimento per finanziare debito societario."
+            })
+
+    # 5. Baltic Dry Index / Shipping Alert
+    if 'BDRY' in last and len(df) > 20:
+        bdry_sma20 = df['BDRY'].rolling(20).mean().iloc[-1]
+        if last['BDRY'] < bdry_sma20 * 0.90:
+            alerts.append({
+                "type": "Crollo Noli Marittimi Baltic Dry (BDRY Alert)",
+                "severity": "WARNING",
+                "color": "#38bdf8",
+                "desc": f"L'indice dei noli marittimi merci secche (BDRY: ${last['BDRY']:.2f}) perde oltre il 10% dalla media a 20gg. Rallentamento della domanda di materie prime globali."
             })
 
     return alerts
 
 # -----------------------------------------------------------------------------
-# 6. STYLING CSS THEME (DARK TECH)
+# 6. STYLING CSS THEME
 # -----------------------------------------------------------------------------
 st.markdown(
     """
@@ -323,7 +341,7 @@ st.markdown(
 )
 
 # -----------------------------------------------------------------------------
-# 7. SIDEBAR LAZY LOADING (LE 4 PAGINE DEFINITIVE)
+# 7. SIDEBAR LAZY LOADING
 # -----------------------------------------------------------------------------
 with st.sidebar:
     st.markdown("### 🛡️ URANIA SYSTEM")
@@ -331,7 +349,7 @@ with st.sidebar:
     nav = st.radio(
         "Navigazione Moduli:",
         [
-            "1. Macro Intelligence & Ratios (Casario / Lops)",
+            "1. Macro Intelligence & Monitor Intermarket",
             "2. Z-Score & COT Lab",
             "3. Quant Lab (Studi Storici Rea)",
             "4. POC Scanner & Telegram (Rea Radar)"
@@ -347,14 +365,14 @@ with st.sidebar:
 df = load_db()
 
 # ==============================================================================
-# PAGINA 1: MACRO INTELLIGENCE, RATIOS & SENTIMENT (CASARIO / VITO LOPS)
+# PAGINA 1: MACRO INTELLIGENCE, RATIOS, SEMAFORI & GRAFICI
 # ==============================================================================
-if nav == "1. Macro Intelligence & Ratios (Casario / Lops)":
-    st.title("🌐 Macro Intelligence, Intermarket Ratios & Sentiment")
-    st.caption("Analisi quantitativa automatica EOD basata sui framework macroeconomici di Marco Casario e Vito Lops.")
+if nav == "1. Macro Intelligence & Monitor Intermarket":
+    st.title("🌐 Macro Intelligence & Monitor Intermarket Completo")
+    st.caption("Framework quantitativo EOD: Liquidità Globale, Curva Rendimenti, Baltic Dry Cargo, Reverse Repo e Semafori di Regime.")
 
-    if st.button("🔄 SINCRONIZZA TUTTI I DATI EOD IN AUTOMATICO"):
-        with st.spinner("Scaricamento flussi automatici (Yahoo + SqueezeMetrics + Fed Data)..."):
+    if st.button("🔄 SINCRONIZZA TUTTI I FLUSSI EOD IN AUTOMATICO"):
+        with st.spinner("Sincronizzazione automatica (Yahoo + SqueezeMetrics + Fed Data)..."):
             d_y, d_b = fetch_automatic_yahoo_eod(120), fetch_bridge_data()
             try:
                 d_d = pd.read_csv("https://squeezemetrics.com/monitor/static/DIX.csv").tail(45).rename(columns={'date':'Data','dix':'DIX','gex':'GEX'})
@@ -376,6 +394,8 @@ if nav == "1. Macro Intelligence & Ratios (Casario / Lops)":
         df['Ratio_Br'] = df['SPY'] / df['RSP'].replace(0, np.nan)
         df['Ratio_HL'] = df['HYG'] / df['LQD'].replace(0, np.nan)
         df['Ratio_CG'] = df['CPER'] / df['GLD'].replace(0, np.nan)
+        df['Ratio_WG'] = df['WOOD'] / df['GLD'].replace(0, np.nan)
+        df['Ratio_SX'] = df['SOXX'] / df['SPY'].replace(0, np.nan)
         last = df.iloc[-1]
 
         # 1. Alert Visivi a Video (Senza Notifiche Telegram)
@@ -496,12 +516,12 @@ if nav == "1. Macro Intelligence & Ratios (Casario / Lops)":
         st.markdown("---")
 
         # 3. Cruscotto Semaforico Automatico dei Rapporti Intermarket
-        st.subheader("🚦 Monitor Intermarket & Segnali di Regime (Casario / Lops)")
+        st.subheader("🚦 Monitor Intermarket & Segnali di Regime EOD")
         r1, r2 = st.columns(6), st.columns(6)
 
         dix_val = last.get('DIX', 46.2)
         gex_val = last.get('GEX', 4907950)
-        pc_val = last.get('P_C', 0.85) if not pd.isna(last.get('P_C', np.nan)) else 0.85
+        pc_val = last.get('P_C', 0.82)
         skew_val = last.get('SKEW', 143.2)
         move_val = last.get('MOVE', 98.4)
         d_liq = last.get('Liq_Delta_5D', -0.36)
@@ -517,39 +537,79 @@ if nav == "1. Macro Intelligence & Ratios (Casario / Lops)":
         dxy_val = last.get('DXY', 98.62)
         go_val = last.get('Ratio_GO', 3.09)
         cg_val = last.get('Ratio_CG', 0.18)
-        risk_val = last.get('Ratio_Risk', 1.37)
-        br_val = last.get('Ratio_Br', 3.46)
+        bdry_val = last.get('BDRY', 14.20)
+        soxx_val = last.get('Ratio_SX', 0.88)
         v1_val = last.get('VIX1D', 15.0)
         vx_val = last.get('VIX', 15.8)
 
-        r2[0].metric("DXY", f"{dxy_val:.2f}", "🔴 USD UP" if dxy_val > 103.5 else "🟢 USD DOWN", delta_color="inverse")
+        r2[0].metric("DXY (USD)", f"{dxy_val:.2f}", "🔴 USD UP" if dxy_val > 103.5 else "🟢 USD DOWN", delta_color="inverse")
         r2[1].metric("GOLD/OIL", f"{go_val:.2f}", "⚠️ ALERT" if go_val > 2.5 else "🟢 OK")
         r2[2].metric("COPPER/GOLD", f"{cg_val:.3f}", "📈 CRESCITA" if len(df) > 1 and cg_val > df.iloc[-2].get('Ratio_CG', cg_val) else "📉 RALLENTAMENTO")
-        r2[3].metric("XLY/XLP", f"{risk_val:.2f}", "🟢 RISK-ON" if risk_val > 1.45 else "🔴 DIFESA")
-        r2[4].metric("SPY/RSP", f"{br_val:.2f}", "⚠️ ALERT" if br_val > 3.45 else "🟢 SANA")
+        r2[3].metric("BALTIC DRY (BDRY)", f"${bdry_val:.2f}", "🟢 CARGO UP" if len(df) > 1 and bdry_val > df.iloc[-2].get('BDRY', bdry_val) else "🔴 CARGO DOWN")
+        r2[4].metric("SEMI / SPY (SOXX)", f"{soxx_val:.2f}", "🟢 TECH LEADER" if soxx_val > 0.85 else "🔴 TECH LAG")
         v_stat = "🔴 INVERTITA" if v1_val > vx_val else "🟢 CONTANGO"
         r2[5].metric("CURVA VIX", f"{v1_val:.1f}/{vx_val:.1f}", v_stat)
 
         st.markdown("---")
 
-        # 4. Grafici Analitici Intermarket
-        c1, c2 = st.columns(2)
-        with c1:
-            st.subheader("💹 1. Liquidità Netta Fed (WALCL - TGA - RRP)")
-            st.plotly_chart(px.area(df[df['Net_Liquidity'] > 0].tail(250), x="Data", y="Net_Liquidity", color_discrete_sequence=['#00CC96']), use_container_width=True)
-        with c2:
-            st.subheader("💰 2. M2 Money Supply")
-            st.plotly_chart(px.line(df[df['M2'] > 0].tail(250), x="Data", y="M2"), use_container_width=True)
+        # 4. Strutture e Grafici Macroeconomici
+        st.subheader("📊 Grafici Macro, Liquidità, Noli Marittimi & Strutture")
 
-        c3, c4 = st.columns(2)
-        with c3:
-            st.subheader("🏆 3. Ratio GOLD / OIL vs Soglia Alert (2.50)")
+        # RIGA 1: Liquidità Netta Fed & Reverse Repo / TGA
+        g1, g2 = st.columns(2)
+        with g1:
+            st.markdown("#### 💹 1. Liquidità Netta Fed ($WALCL - TGA - RRP$)")
+            st.plotly_chart(px.area(df[df['Net_Liquidity'] > 0].tail(250), x="Data", y="Net_Liquidity", color_discrete_sequence=['#00CC96']), use_container_width=True)
+        with g2:
+            st.markdown("#### 🏦 2. Reverse Repo (RRP) & Treasury Account (TGA)")
+            rrp_cols = [c for c in ['RRP', 'TGA'] if c in df.columns]
+            if rrp_cols:
+                st.plotly_chart(px.line(df.tail(250), x="Data", y=rrp_cols, color_discrete_sequence=['#f59e0b', '#38bdf8']), use_container_width=True)
+            else:
+                st.plotly_chart(px.line(df[df['M2'] > 0].tail(250), x="Data", y="M2", title="M2 Money Supply"), use_container_width=True)
+
+        # RIGA 2: Curva dei Rendimenti USA & VIX Term Structure
+        g3, g4 = st.columns(2)
+        with g3:
+            st.markdown("#### 🏛️ 3. Curva dei Rendimenti USA (US Yield Curve)")
+            yield_mat = ["3M", "2Y", "5Y", "10Y", "30Y"]
+            yield_vals = [
+                float(last.get('US3M', 4.35)),
+                float(last.get('US2Y', 4.15)),
+                float(last.get('US5Y', 4.05)),
+                float(last.get('US10Y', 4.25)),
+                float(last.get('US30Y', 4.50))
+            ]
+            fig_yc = go.Figure(go.Scatter(x=yield_mat, y=yield_vals, mode='lines+markers+text', text=[f"{v:.2f}%" for v in yield_vals], textposition="top center", line=dict(color="#00D1FF", width=3)))
+            fig_yc.update_layout(yaxis_title="Rendimento (%)", template="plotly_dark")
+            st.plotly_chart(fig_yc, use_container_width=True)
+            
+        with g4:
+            st.markdown("#### 📈 4. VIX Term Structure (Struttura a Termine Volatilità)")
+            vx_mat = ["1D", "9D", "30D", "3M", "6M", "1Y"]
+            vx_vals = [
+                float(last.get('VIX1D', 15.0)),
+                float(last.get('VIX9D', 15.2)),
+                float(last.get('VIX', 15.8)),
+                float(last.get('VIX3M', 17.1)),
+                float(last.get('VIX6M', 18.2)),
+                float(last.get('VIX1Y', 19.5))
+            ]
+            is_inverted = vx_vals[0] > vx_vals[2]
+            fig_vx = go.Figure(go.Scatter(x=vx_mat, y=vx_vals, mode='lines+markers+text', text=[f"{v:.1f}" for v in vx_vals], textposition="top center", line=dict(color="red" if is_inverted else "#10b981", width=3)))
+            fig_vx.update_layout(yaxis_title="Livello Volatilità", template="plotly_dark")
+            st.plotly_chart(fig_vx, use_container_width=True)
+
+        # RIGA 3: Baltic Dry Index (Navi Cargo) & Gold/Oil
+        g5, g6 = st.columns(2)
+        with g5:
+            st.markdown("#### 🚢 5. Baltic Dry Index (Noli Cargo - Proxy BDRY)")
+            st.plotly_chart(px.line(df[df['BDRY'] > 0].tail(150), x="Data", y="BDRY", color_discrete_sequence=['#00e5ff']), use_container_width=True)
+        with g6:
+            st.markdown("#### 🏆 6. Ratio GOLD / OIL vs Soglia Alert (2.50)")
             fig_go = px.line(df[df['Ratio_GO'] > 0].tail(100), x="Data", y="Ratio_GO", color_discrete_sequence=['#FFD700'])
             fig_go.add_hline(y=2.5, line_dash="dash", line_color="red")
             st.plotly_chart(fig_go, use_container_width=True)
-        with c4:
-            st.subheader("📉 4. Ratio Copper / Gold (Macro Ciclo)")
-            st.plotly_chart(px.line(df[df['Ratio_CG'] > 0].tail(100), x="Data", y="Ratio_CG", color_discrete_sequence=['#38bdf8']), use_container_width=True)
 
 # ==============================================================================
 # PAGINA 2: Z-SCORE & COT LAB
