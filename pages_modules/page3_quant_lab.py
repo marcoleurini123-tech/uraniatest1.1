@@ -5,7 +5,7 @@ import yfinance as yf
 import plotly.graph_objects as go
 
 # =============================================================================
-# DATASET COMPLETO 87 STUDI QUANT-REA CON STRUTTURA MACRO-MACRO (USA / WORLD)
+# DATASET COMPLETO 87 STUDI QUANT-REA (USA / WORLD)
 # =============================================================================
 STUDIES_DB = [
     # USA -> Statistiche Macro
@@ -114,19 +114,8 @@ STUDIES_DB = [
 
 STUDY_MAP = {s["id"]: s for s in STUDIES_DB}
 
-# =============================================================================
-# CSS PERSONALIZZATO IDENTICO A QUANT-REA
-# =============================================================================
 QR_CSS = """
 <style>
-/* Pannello Sinistro Filtri */
-.filter-box {
-    background-color: #0d1527;
-    border: 1px solid #1e293b;
-    border-radius: 10px;
-    padding: 14px;
-    margin-bottom: 15px;
-}
 .filter-title {
     font-size: 13px;
     font-weight: 700;
@@ -136,8 +125,6 @@ QR_CSS = """
     align-items: center;
     gap: 6px;
 }
-
-/* Banner Verde Top */
 .banner-premium {
     background-color: #064e3b;
     border: 1px solid #059669;
@@ -150,8 +137,6 @@ QR_CSS = """
     align-items: center;
     gap: 10px;
 }
-
-/* Card Studi */
 .qr-card {
     background-color: #0f172a;
     border: 1px solid #1e293b;
@@ -218,9 +203,6 @@ QR_CSS = """
 </style>
 """
 
-# =============================================================================
-# ESECUTORE GENERALE PER STUDI NON ANCORA IMPLEMENTATI COME PLUGIN SINGOLI
-# =============================================================================
 def render_generic_study_view(meta):
     st.markdown(f"### 🔬 {meta['name']}")
     st.caption(f"Categoria: **{meta['macro']} / {meta['subcat']}** | Tags: *{', '.join(meta['tags'])}*")
@@ -297,6 +279,7 @@ def render_page3():
 
         st.markdown("---")
 
+        # 1. STUDIO NFP (Studio 01)
         if sid == "MACRO_01":
             try:
                 from studies.macro_nfp import render_nfp_study_view
@@ -305,16 +288,27 @@ def render_page3():
                 st.error("File `studies/macro_nfp.py` non trovato su GitHub.")
             except Exception as e:
                 st.error(f"Errore esecuzione NFP: {str(e)}")
+
+        # 2. STUDIO TASSI - INFLAZIONE - DISOCCUPAZIONE (Studio 02)
+        elif sid == "MACRO_02":
+            try:
+                from studies.macro_tassi_inflazione import render_tassi_inflazione_view
+                render_tassi_inflazione_view()
+            except ModuleNotFoundError:
+                st.error("File `studies/macro_tassi_inflazione.py` non trovato su GitHub.")
+            except Exception as e:
+                st.error(f"Errore esecuzione Tassi-Inflazione: {str(e)}")
+
+        # 3. ROUTING GENERICO PER ALTRI STUDI IN ATTESA DI SVILUPPO
         else:
             render_generic_study_view(meta)
         return
 
     # -------------------------------------------------------------------------
-    # VISTA GALLERIA ARCHIVIO 1:1 CON QUANT-REA
+    # VISTA GALLERIA ARCHIVIO (PANNELLO FILTRI + GRID)
     # -------------------------------------------------------------------------
     col_filters, col_main = st.columns([1, 3.2])
 
-    # --- PANNELLO SINISTRO: FILTRI E TENDINE ---
     with col_filters:
         st.markdown("#### 🔍 Cerca analisi...")
         search_kw = st.text_input("Cerca", placeholder="Cerca analisi...", label_visibility="collapsed").strip().lower()
@@ -357,7 +351,6 @@ def render_page3():
         if b2.button("🗑️ Reset", use_container_width=True):
             st.rerun()
 
-    # --- PANNELLO DESTRO: BANNER E CARD GRID ---
     with col_main:
         st.markdown(
             """
@@ -370,7 +363,6 @@ def render_page3():
             unsafe_allow_html=True
         )
 
-        # Filtro dei dati
         allowed_macros = []
         if cat_usa: allowed_macros.append("Usa")
         if cat_world: allowed_macros.append("World")
@@ -391,7 +383,6 @@ def render_page3():
                 continue
             filtered_studies.append(s)
 
-        # Raggruppamento per Macro (Usa, World) e Subcategory
         macros_present = ["Usa", "World"]
         for m in macros_present:
             m_studies = [s for s in filtered_studies if s["macro"] == m]
@@ -408,7 +399,6 @@ def render_page3():
 
                 st.markdown(f"<h4 style='color:#94a3b8; font-size:15px; margin:14px 0 8px 0;'>{sc}</h4>", unsafe_allow_html=True)
 
-                # Griglia 3 Card per Riga
                 cols = st.columns(3)
                 for idx, s in enumerate(sc_studies):
                     col = cols[idx % 3]
