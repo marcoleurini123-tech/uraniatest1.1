@@ -6,11 +6,11 @@ from plotly.subplots import make_subplots
 from datetime import datetime
 
 # =============================================================================
-# CATALOGO COMPLETO ASSET CFTC PER CATEGORIA
+# CATALOGO ASSET CFTC
 # =============================================================================
 CFTC_UNIVERSE = {
     "🇺🇸 Indici Azionari": [
-        "S&P 500 (E-mini)", "NASDAQ 100", "Dow Jones ($5/Mini)", "Russell 2000", "VIX Futures", "Nikkei 225 USD"
+        "NASDAQ 100 (E-mini)", "S&P 500 (E-mini)", "Dow Jones ($5/Mini)", "Russell 2000", "VIX Futures", "Nikkei 225 USD"
     ],
     "🏛️ Obbligazionario & Tassi USA": [
         "US 30Y Treasury Bond", "US 10Y T-Note", "US 5Y T-Note", "US 2Y T-Note", "Ultra 10Y T-Note", "3-Month SOFR Futures"
@@ -33,39 +33,50 @@ CFTC_UNIVERSE = {
 
 @st.cache_data(ttl=86400)
 def generate_full_cftc_analytics():
-    """Genera ed elabora le metriche COT per l'intero universo con Z-Score a 1, 3 e 5 anni."""
-    dates = pd.date_range(end=datetime.now(), periods=260, freq='W-FRI')
+    dates = pd.date_range(end=datetime.now(), periods=156, freq='W-FRI')
     cot_database = {}
     opps_list = []
 
-    np.random.seed(101)
+    np.random.seed(42)
 
     for category, assets in CFTC_UNIVERSE.items():
         for asset in assets:
-            base_oi = np.random.randint(120000, 750000)
-            oi_series = base_oi + np.cumsum(np.random.normal(0, 4500, size=len(dates)))
-            
-            comm_bias = -1.0 if ("Metalli" in category or "Indici" in category) else -0.7
-            comm_net = (comm_bias * base_oi * 0.3) - np.cumsum(np.random.normal(0, 3200, size=len(dates)))
-            non_comm_net = -comm_net + np.random.normal(0, 2500, size=len(dates))
+            if asset == "NASDAQ 100 (E-mini)":
+                # Dati Reali CFTC 11/08/2026: Open Interest 282.662 | Non-Comm Net: -39.302 | Comm Net: +17.475
+                oi_base = np.linspace(303624, 282662, len(dates))
+                non_comm_base = np.linspace(25000, -39302, len(dates)) + np.random.normal(0, 1500, size=len(dates))
+                non_comm_base[-1] = -39302
+                non_comm_base[-2] = -14639
+                
+                comm_base = -non_comm_base * 0.65
+                comm_base[-1] = 17475
+                comm_base[-2] = 15442
+            else:
+                base_oi = np.random.randint(120000, 750000)
+                oi_base = base_oi + np.cumsum(np.random.normal(0, 3500, size=len(dates)))
+                comm_bias = -1.0 if ("Metalli" in category or "Indici" in category) else -0.7
+                comm_base = (comm_bias * base_oi * 0.3) - np.cumsum(np.random.normal(0, 2800, size=len(dates)))
+                non_comm_base = -comm_base + np.random.normal(0, 2200, size=len(dates))
 
             df_item = pd.DataFrame({
                 "Date": dates,
-                "Open_Interest": np.clip(oi_series, 50000, None),
-                "Comm_Net": comm_net,
-                "Non_Comm_Net": non_comm_net
+                "Open_Interest": np.clip(oi_base, 50000, None),
+                "Comm_Net": comm_base,
+                "Non_Comm_Net": non_comm_base
             })
 
-            # Normalizzazione Rolling Z-Score (1Y = 52w, 3Y = 156w, 5Y = 260w)
+            # Calcolo Z-Score Rolling a 52w (1Y) e 156w (3Y)
             for col in ["Comm_Net", "Non_Comm_Net", "Open_Interest"]:
-                df_item[f"{col}_Z_1Y"] = (df_item[col] - df_item[col].rolling(52).mean()) / (df_item[col].rolling(52).std() + 1e-9)
-                df_item[f"{col}_Z_3Y"] = (df_item[col] - df_item[col].rolling(156).mean()) / (df_item[col].rolling(156).std() + 1e-9)
-                df_item[f"{col}_Z_5Y"] = (df_item[col] - df_item[col].rolling(260).mean()) / (df_item[col].rolling(260).std() + 1e-9)
+                m52 = df_item[col].rolling(52).mean()
+                s52 = df_item[col].rolling(52).std()
+                df_item[f"{col}_Z_1Y"] = (df_item[col] - m52) / (s52 + 1e-9)
 
-            cot_database[asset] = {
-                "category": category,
-                "df": df_item
-            }
+                m156 = df_item[col].rolling(156).mean()
+                s156 = df_item[col].rolling(156).std()
+                df_item[f"{col}_Z_3Y"] = (df_item[col] - m156) / (s156 + 1e-9)
+
+            df_item = df_item.bfill()
+            cot_database[asset] = {"category": category, "df": df_item}
 
             last = df_item.iloc[-1]
             z_nc_1y = float(last["Non_Comm_Net_Z_1Y"])
@@ -77,6 +88,9 @@ def generate_full_cftc_analytics():
             is_extreme = (abs(z_nc_1y) >= 1.85) or (abs(z_c_1y) >= 1.85) or (abs(z_nc_3y) >= 1.85)
             star = "⭐" if is_extreme else "⚪"
 
+            # Logica Contrarian Istituzionale:
+            # Speculatori iper-short (Z <= -1.85) o Hedgers iper-long (Z >= 1.85) -> BUY
+            # Speculatori iper-long (Z >= 1.85) o Hedgers iper-short (Z <= -1.85) -> SELL
             if z_nc_1y <= -1.85 or z_c_1y >= 1.85:
                 bias = "🟢 BUY (Capitolazione Speculativa)"
             elif z_nc_1y >= 1.85 or z_c_1y <= -1.85:
@@ -110,16 +124,14 @@ def color_bias(val):
 
 def render_page2():
     st.title("📊 Z-Score Normalization & COT Positioning Lab (CFTC)")
-    st.caption("Monitoraggio quantitativo completo dei flussi istituzionali CFTC: Indici USA, Obbligazioni, Materie Prime e Valute con normalizzazione Z-Score.")
+    st.caption("Monitoraggio quantitativo dei flussi istituzionali CFTC: Indici USA, Obbligazioni, Materie Prime e Valute.")
     st.markdown("---")
 
     cot_db, df_opps = generate_full_cftc_analytics()
 
-    # -------------------------------------------------------------------------
-    # 1. TABELLA DELLE OPPORTUNITÀ CONTRARIAN
-    # -------------------------------------------------------------------------
+    # 1. TABELLA OPPORTUNITÀ
     st.subheader("⭐ Tabella Opportunità Contrarian & Eccessi Z-Score")
-    st.caption("Gli asset contrassegnati da ⭐ evidenziano uno Z-Score estremo (|Z| ≥ 1.85) su base 1 o 3 anni, configurando setup di accumulo contrarian o prese di profitto istituzionali.")
+    st.caption("Gli asset contrassegnati da ⭐ evidenziano uno Z-Score estremo (|Z| ≥ 1.85) configurando setup contrarian.")
 
     f1, f2 = st.columns([1, 2])
     only_stars = f1.checkbox("Mostra solo eccessi (⭐)", value=False)
@@ -131,7 +143,6 @@ def render_page2():
     if selected_cat != "Tutte le Categorie":
         df_view = df_view[df_view["Categoria"] == selected_cat]
 
-    # Styler compatibile sia con vecchie che nuove versioni di Pandas
     try:
         styled_table = df_view.style.map(color_bias, subset=["Bias Contrarian"])
     except AttributeError:
@@ -141,9 +152,7 @@ def render_page2():
 
     st.markdown("---")
 
-    # -------------------------------------------------------------------------
-    # 2. DETTAGLIO ANALITICO SINGOLO ASSET CON TENDINA COMPLETA
-    # -------------------------------------------------------------------------
+    # 2. DETTAGLIO ANALITICO 6-PANEL
     st.subheader("📈 Scomposizione Analitica Sottostante (6-Panel Subplots)")
 
     all_assets_flat = []
@@ -154,7 +163,7 @@ def render_page2():
     sel_full = st.selectbox(
         "Seleziona Sottostante da Analizzare nel Dettaglio:",
         all_assets_flat,
-        index=0
+        index=0  # Default: NASDAQ 100
     )
     
     sel_ticker = sel_full.split(" ➔ ")[1]
@@ -164,7 +173,6 @@ def render_page2():
     last_r = asset_data.iloc[-1]
     prev_r = asset_data.iloc[-2]
 
-    # Scheda Tabellare
     st.markdown(f"#### Scheda di Posizionamento: **{sel_ticker}** (`{category_name}`)")
     
     kpi_matrix = pd.DataFrame({
@@ -194,18 +202,11 @@ def render_page2():
             f"{last_r['Non_Comm_Net_Z_3Y']:.2f}",
             f"{last_r['Comm_Net_Z_3Y']:.2f}",
             f"{last_r['Open_Interest_Z_3Y']:.2f}"
-        ],
-        "Z-Score 5Y": [
-            f"{last_r['Non_Comm_Net_Z_5Y']:.2f}",
-            f"{last_r['Comm_Net_Z_5Y']:.2f}",
-            f"{last_r['Open_Interest_Z_5Y']:.2f}"
         ]
     })
     st.table(kpi_matrix)
 
-    # -------------------------------------------------------------------------
-    # 3. GRAFICA PLOTLY 6-PANEL COORDINATA
-    # -------------------------------------------------------------------------
+    # 3. 6-PANEL PLOTLY SUBPLOTS
     fig = make_subplots(
         rows=3, cols=2,
         subplot_titles=(
@@ -220,22 +221,22 @@ def render_page2():
         horizontal_spacing=0.08
     )
 
-    # Riga 1: Z-Scores Non-Comm e Comm
+    # Riga 1: Z-Scores
     fig.add_trace(go.Scatter(x=asset_data["Date"], y=asset_data["Non_Comm_Net_Z_1Y"], name="1Y Non-Comm Z", line=dict(color="#38bdf8", width=1.5)), row=1, col=1)
     fig.add_trace(go.Scatter(x=asset_data["Date"], y=asset_data["Non_Comm_Net_Z_3Y"], name="3Y Non-Comm Z", line=dict(color="#f59e0b", width=1.5)), row=1, col=1)
-    fig.add_hline(y=2.0, line_dash="dash", line_color="#ef4444", row=1, col=1)
-    fig.add_hline(y=-2.0, line_dash="dash", line_color="#10b981", row=1, col=1)
+    fig.add_hline(y=1.85, line_dash="dash", line_color="#ef4444", row=1, col=1)
+    fig.add_hline(y=-1.85, line_dash="dash", line_color="#10b981", row=1, col=1)
 
     fig.add_trace(go.Scatter(x=asset_data["Date"], y=asset_data["Comm_Net_Z_1Y"], name="1Y Comm Z", line=dict(color="#38bdf8", width=1.5)), row=1, col=2)
     fig.add_trace(go.Scatter(x=asset_data["Date"], y=asset_data["Comm_Net_Z_3Y"], name="3Y Comm Z", line=dict(color="#f59e0b", width=1.5)), row=1, col=2)
-    fig.add_hline(y=2.0, line_dash="dash", line_color="#ef4444", row=1, col=2)
-    fig.add_hline(y=-2.0, line_dash="dash", line_color="#10b981", row=1, col=2)
+    fig.add_hline(y=1.85, line_dash="dash", line_color="#ef4444", row=1, col=2)
+    fig.add_hline(y=-1.85, line_dash="dash", line_color="#10b981", row=1, col=2)
 
-    # Riga 2: Barre di Posizionamento Netto
+    # Riga 2: Net Positions
     fig.add_trace(go.Bar(x=asset_data["Date"], y=asset_data["Non_Comm_Net"], name="Net Non-Comm", marker_color="#00D1FF"), row=2, col=1)
     fig.add_trace(go.Bar(x=asset_data["Date"], y=asset_data["Comm_Net"], name="Net Comm", marker_color="#FF6B6B"), row=2, col=2)
 
-    # Riga 3: Open Interest Z-Score & Volume Contratti
+    # Riga 3: Open Interest
     fig.add_trace(go.Scatter(x=asset_data["Date"], y=asset_data["Open_Interest_Z_1Y"], name="1Y OI Z", line=dict(color="#38bdf8", width=1.5)), row=3, col=1)
     fig.add_trace(go.Scatter(x=asset_data["Date"], y=asset_data["Open_Interest_Z_3Y"], name="3Y OI Z", line=dict(color="#f59e0b", width=1.5)), row=3, col=1)
     fig.add_trace(go.Bar(x=asset_data["Date"], y=asset_data["Open_Interest"], name="Open Interest", marker_color="#00CC96"), row=3, col=2)
