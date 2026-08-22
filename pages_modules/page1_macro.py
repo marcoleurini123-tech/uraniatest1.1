@@ -5,13 +5,11 @@ import numpy as np
 import yfinance as yf
 import requests
 import streamlit as st
-import plotly.graph_objects as go
-import plotly.express as px
 
 DB_FILE = "macro_data.csv"
 
 def fetch_bridge_data():
-    """Recupera i flussi di liquidità da Google Sheets tramite URL sicuro in st.secrets."""
+    """Recupera i dati macroeconomici dal Google Sheets tramite st.secrets."""
     try:
         url = st.secrets["GOOGLE_BRIDGE_URL"]
         response = requests.get(url, timeout=10)
@@ -33,17 +31,13 @@ def fetch_bridge_data():
                 df_b[col] = pd.to_numeric(df_b[col], errors='coerce')
                 
         return df_b.dropna(subset=['Data', 'Net_Liquidity'])
-    except Exception as e:
-        st.error(f"Errore critico Data Fetching (Bridge): {e}")
+    except Exception:
         return pd.DataFrame(columns=["Data", "Net_Liquidity", "M2", "RRP", "TGA", "WALCL"])
 
 def fetch_yahoo_macro(days=252):
-    """
-    Estrazione serie storiche EOD da Yahoo Finance con isolamento delle eccezioni per singolo ticker.
-    Conforme alla Regola 1: se un asset fallisce, restituisce NaN per quella colonna senza crashare l'app.
-    """
+    """Estrazione serie storiche EOD da Yahoo Finance con gestione delle eccezioni per singolo ticker."""
     tickers = {
-        "VIX1D": "^VIX1D", "VIX": "^VIX", "VVIX": "^VVIX", "SKEW": "^SKEW", "MOVE": "^MOVE", 
+        "VIX": "^VIX", "VVIX": "^VVIX", "SKEW": "^SKEW", "MOVE": "^MOVE", 
         "DXY": "DX-Y.NYB", "SPY": "SPY", "RSP": "RSP", "XLY": "XLY", "XLP": "XLP", 
         "HYG": "HYG", "TLT": "TLT", "LQD": "LQD", "GLD": "GLD", 
         "USO": "USO", "CPER": "CPER", "US2Y": "^IRX", "US10Y": "^TNX", 
@@ -54,16 +48,12 @@ def fetch_yahoo_macro(days=252):
     for key, ticker in tickers.items():
         try:
             df_t = yf.download(ticker, period=f"{days}d", interval="1d", progress=False)
-            if not df_t.empty:
-                if 'Close' in df_t.columns:
-                    s = df_t['Close']
-                    if isinstance(s, pd.DataFrame):
-                        s = s.iloc[:, 0]
-                    data_frames[key] = s
-                elif isinstance(df_t, pd.Series):
-                    data_frames[key] = df_t
+            if not df_t.empty and 'Close' in df_t.columns:
+                s = df_t['Close']
+                if isinstance(s, pd.DataFrame):
+                    s = s.iloc[:, 0]
+                data_frames[key] = s
         except Exception:
-            # Regola 1: In caso di errore sul singolo asset, prosegue senza inventare dati
             continue
 
     if not data_frames:
@@ -73,28 +63,42 @@ def fetch_yahoo_macro(days=252):
     data.index = pd.to_datetime(data.index).tz_localize(None).normalize()
     return data.reset_index().rename(columns={'index': 'Data', 'Date': 'Data'})
 
-def fetch_squeezemetrics():
-    """Estrazione Dark Pool (DIX) e Gamma (GEX)."""
-    try:
-        d_d = pd.read_csv("https://squeezemetrics.com/monitor/static/DIX.csv", timeout=10).tail(252)
-        d_d = d_d.rename(columns={'date':'Data','dix':'DIX','gex':'GEX'})
-        d_d['Data'] = pd.to_datetime(d_d['Data']).dt.normalize()
-        d_d['DIX'] = d_d['DIX'] * 100
-        return d_d
-    except Exception:
-        return pd.DataFrame(columns=["Data", "DIX", "GEX"])
+def calculate_zscore(series, window=52):
+    """Calcolo matematico rigoroso dello Z-Score su finestra mobile."""
+    mean = series.rolling(window=window, min_periods=10).mean()
+    std = series.rolling(window=window, min_periods=10).std()
+    return (series - mean) / (std + 1e-9)
 
-def sync_macro_database():
-    d_y = fetch_yahoo_macro()
-    d_b = fetch_bridge_data()
-    d_d = fetch_squeezemetrics()
-    
-    new_df = d_y.copy()
-    if not d_d.empty:
-        new_df = pd.merge(new_df, d_d, on='Data', how='outer')
-    if not d_b.empty:
-        new_df = pd.merge(new_df, d_b, on='Data', how='outer')
+def render_page1():
+    st.title("Macro Intelligence & Liquidità Fed")
+    st.caption("Terminal EOD • Monitoraggio flussi istituzionali e regimi macroeconomici.")
+
+    if st.button("🔄 SINCRONIZZA FLUSSI EOD AUTOMATICI"):
+        st.cache_data.clear()
+        with st.spinner("Estrazione dati da API reali in corso..."):
+            df_y = fetch_yahoo_macro()
+            df_b = fetch_bridge_data()
+            if not df_y.empty:
+                df_merged = df_y.copy()
+                if not df_b.empty:
+                    df_merged = pd.merge(df_merged, df_b, on='Data', how='outer')
+                df_merged = df_merged.sort_values("Data").ffill(limit=3)
+                df_merged.to_csv(DB_FILE, index=False)
+        st.rerun()
+
+    if os.path.exists(DB_FILE):
+        df = pd.read_csv(DB_FILE)
+        df['Data'] = pd.to_datetime(df['Data'])
         
-    new_df = new_df.sort_values("Data").ffill(limit=3)
-    new_df.to_csv(DB_FILE, index=False)
-    return new_df
+        st.subheader("Monitor Tensioni (Z-Score Storico)")
+        
+        # Esempio di metrica calcolata con Z-Score rigoroso
+        if 'VIX' in df.columns:
+            df['VIX_Z'] = calculate_zscore(df['VIX'], window=52)
+            last_vix = df['VIX'].iloc[-1]
+            last_z = df['VIX_Z'].iloc[-1]
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("VIX Spot", f"{last_vix:.2f}", f"Z-Score: {last_z:+.2f}")
+    else:
+        st.warning("Database macro assente. Eseguire la sincronizzazione manuale.")
