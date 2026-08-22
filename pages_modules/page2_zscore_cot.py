@@ -4,6 +4,7 @@ import numpy as np
 import requests
 import io
 
+@st.cache_data(ttl=86400)
 def fetch_cftc_data():
     """
     Estrazione dati reali CFTC. 
@@ -23,32 +24,34 @@ def render_page2():
     st.title("📊 Z-Score Normalization & COT Positioning Lab (CFTC)")
     st.caption("Monitoraggio quantitativo dei flussi istituzionali CFTC basato esclusivamente su endpoint reali.")
 
+    # Container stabile per i comandi
     col_btn, _ = st.columns([1, 3])
     if col_btn.button("🔄 AGGIORNA FLUSSI COT"):
         st.cache_data.clear()
-        st.rerun()
 
     st.markdown("---")
 
+    # Acquisizione dati
     df = fetch_cftc_data()
 
-    # Schema costante e immutabile per prevenire errori di DOM (removeChild)
+    # Schema costante e immutabile per preservare l'integrità del DOM di Streamlit
     columns_schema = [
         "⭐", "Categoria", "Asset / Security", "Bias Contrarian", 
         "Non-Comm Net", "Comm Net", "Open Interest", 
         "Z-Score 1Y (Non-Comm)", "Z-Score 3Y (Non-Comm)"
     ]
 
+    # Gestione unificata del flusso: zero shift strutturali del layout
     if df.empty:
         st.warning(
             "⚠️ **Endpoint CFTC temporaneamente non disponibile o non raggiungibile.**\n\n"
             "In ottemperanza alla **Regola 1 (Tolleranza Zero per Dati Fittizi)**, il sistema si rifiuta "
-            "categoricamente di generare numeri casuali o stimati."
+            "categoricamente di generare numeri casuali o stimati. L'interfaccia rimane stabile in attesa del ripristino."
         )
-        # Renderizziamo un DataFrame vuoto ma con lo schema RIGIDO per non rompere il DOM
-        df_empty = pd.DataFrame(columns=columns_schema)
-        st.dataframe(df_empty, use_container_width=True, hide_index=True)
-        return
+        display_df = pd.DataFrame(columns=columns_schema)
+    else:
+        st.success(f"Flusso CFTC sincronizzato con successo. Record elaborati: {len(df):,}")
+        display_df = df.head(50)
 
-    st.success(f"Flusso CFTC sincronizzato. Record elaborati: {len(df):,}")
-    st.dataframe(df.head(50), use_container_width=True, hide_index=True)
+    # Renderizzazione sicura all'interno di un unico nodo costante
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
