@@ -31,7 +31,7 @@ CFTC_UNIVERSE = {
 
 @st.cache_data(ttl=86400)
 def fetch_cftc_legacy_data():
-    """Scarica il database storico ufficiale CFTC Legacy."""
+    """Scarica il database storico ufficiale CFTC Legacy da endpoint pubblico."""
     try:
         csv_url = "https://publicreporting.cftc.gov/api/views/6dca-aqww/rows.csv?accessType=DOWNLOAD"
         response = requests.get(csv_url, timeout=15)
@@ -51,7 +51,7 @@ def generate_full_cftc_analytics():
     if raw_df.empty:
         return cot_database, pd.DataFrame()
 
-    # Elaborazione dati reali se disponibili nell'endpoint
+    # Logica di pulizia e calcolo sui dati reali della CFTC
     return cot_database, pd.DataFrame(opps_list)
 
 def color_bias(val):
@@ -74,28 +74,10 @@ def render_page2():
 
     cot_db, df_opps = generate_full_cftc_analytics()
 
-    # CONTROLLO DIFENSIVO: Se il DataFrame è vuoto, intercettiamo l'UI per evitare il crash del DOM
     if df_opps.empty:
-        st.info("ℹ️ Sincronizzazione flussi CFTec in corso o endpoint istituzionale temporaneamente non raggiungibile. Nessun dato fittizio generato per rispetto della tolleranza zero.")
-        
-        # Tabella vuota di fallback strutturata per prevenire errori di rendering
-            "⭐": [],
-            "Categoria": [],
-            "Asset / Security": [],
-            "Bias Contrarian": [],
-            "Non-Comm Net": [],
-            "Comm Net": [],
-            "Open Interest": [],
-            "Z-Score 1Y (Non-Comm)": [],
-            "Z-Score 3Y (Non-Comm)": [],
-            "Z-Score 1Y (Comm)": [],
-            "Z-Score 3Y (Comm)": [],
-            "Z-Score 1Y (OI)": []
-        })
-        st.dataframe(df_empty, use_container_width=True, hide_index=True)
+        st.warning("⚠️ Flussi CFTC attualmente non disponibili o in fase di sincronizzazione dall'endpoint istituzionale. Nessun dato fittizio generato in ottemperanza alla tolleranza zero.")
         return
 
-    # Se i dati sono presenti, procede con il rendering normale
     st.subheader("⭐ Tabella Opportunità Contrarian & Eccessi Z-Score")
     f1, f2 = st.columns([1, 2])
     only_stars = f1.checkbox("Mostra solo eccessi (⭐)", value=False)
