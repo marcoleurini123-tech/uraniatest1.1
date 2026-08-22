@@ -114,7 +114,7 @@ with st.sidebar:
         st.rerun()
 
 # -----------------------------------------------------------------------------
-# 4. ROUTER DINAMICO ISOLATO (TRY-EXCEPT GLOBALE)
+# 4. ROUTER DINAMICO ISOLATO
 # -----------------------------------------------------------------------------
 if nav == "1. Macro Intelligence & Fed Liquidity":
     try:
