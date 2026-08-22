@@ -1,29 +1,48 @@
-import yfinance as yf
 import pandas as pd
 import numpy as np
-import streamlit as st
+import requests
+import io
+import yfinance as yf
 
-@st.cache_data(ttl=3600)
-def fetch_eod_data(ticker: str, period: str = "1y") -> pd.DataFrame:
-    """Scarica i dati EOD con caching di 1 ora per evitare chiamate ridondanti."""
+def fetch_cftc_real_data():
+    """
+    Estrae i dati reali CFTC Legacy dai report pubblici ufficiali.
+    Conforme alla Regola 1: in caso di timeout o errore di rete, restituisce 
+    un DataFrame vuoto. Vietato categoricamente l'uso di numeri casuali o hardcodati.
+    """
+    url = "https://publicreporting.cftc.gov/api/views/6dca-aqww/rows.csv?accessType=DOWNLOAD"
     try:
-        df = yf.download(ticker, period=period, interval="1d", progress=False)
-        if df.empty:
-            return pd.DataFrame()
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        df = pd.read_csv(io.StringIO(response.text), low_memory=False)
+        df.columns = df.columns.str.strip().str.lower()
         return df
     except Exception:
         return pd.DataFrame()
 
-def calculate_eod_poc(df: pd.DataFrame, bins_count: int = 50) -> float:
-    """Calcola il Point of Control volumetrico sui dati EOD."""
-    if df.empty or 'Close' not in df or 'Volume' not in df:
-        return 0.0
-    price_bins = np.linspace(df['Low'].min(), df['High'].max(), bins_count)
-    bin_idx = np.digitize(df['Close'].values, price_bins)
-    vol_hist = np.zeros(len(price_bins))
-    for idx, v in zip(bin_idx, df['Volume'].values):
-        if idx < len(vol_hist):
-            vol_hist[idx] += v
-    return float(price_bins[np.argmax(vol_hist)])
+def calculate_z_score(series: pd.Series, window: int = 52) -> pd.Series:
+    """
+    Conforme alla Regola 2: Rigore Matematico e Z-Score.
+    Calcola la deviazione standard normalizzata (Z-Score) su finestre temporali 
+    rolling (es. 52 settimane per 1Y o 156 settimane per 3Y), senza soglie percentuali fisse.
+    """
+    mean = series.rolling(window=window, min_periods=10).mean()
+    std = series.rolling(window=window, min_periods=10).std()
+    return (series - mean) / (std + 1e-9)
+
+def fetch_eod_macro_series(ticker: str, period: str = "2y") -> pd.Series:
+    """
+    Estrae serie storiche EOD reali tramite yfinance.
+    Conforme alla Regola 1: se il ticker fallisce o viene delistato, 
+    restituisce una serie vuota senza bloccare l'esecuzione globale.
+    """
+    try:
+        df = yf.download(ticker, period=period, interval="1d", progress=False)
+        if df.empty or 'Close' not in df.columns:
+            return pd.Series(dtype=float)
+        series = df['Close']
+        if isinstance(series, pd.DataFrame):
+            series = series.iloc[:, 0]
+        return series
+    except Exception:
+        return pd.Series(dtype=float)
