@@ -1,4 +1,5 @@
 import streamlit as st
+import hmac
 from PIL import Image
 from pathlib import Path
 
@@ -72,12 +73,18 @@ def check_authentication() -> bool:
 
         st.markdown("<br>", unsafe_allow_html=True)
         pwd = st.text_input("Password di Accesso:", type="password", placeholder="••••••••••••")
-        
         if st.button("SBLOCCA TERMINALE", use_container_width=True):
-            if pwd == "Serafino12?#":
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Credenziali non valide.")
-
-    return False
+            try:
+                expected_password = st.secrets["APP_PASSWORD"]
+                if hmac.compare_digest(pwd, expected_password):
+                    st.session_state.authenticated = True
+                    st.rerun()
+                else:
+                    st.error("Credenziali non valide.")
+            except KeyError:
+                st.error("Errore critico: 'APP_PASSWORD' mancante in st.secrets.")
+                st.stop()
+                    st.error("Credenziali non valide.")
+            except KeyError:
+                    st.error("Errore critico: 'APP_PASSWORD' mancante in st.secrets.")
+             
