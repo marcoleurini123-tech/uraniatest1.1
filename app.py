@@ -15,6 +15,8 @@ st.set_page_config(
 # -----------------------------------------------------------------------------
 # 2. GESTIONE AUTENTICAZIONE E SCHERMATA LOGIN
 # -----------------------------------------------------------------------------
+import hmac # Necessario per un confronto sicuro delle stringhe
+
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
@@ -57,7 +59,6 @@ if not st.session_state.authenticated:
     st.markdown("<br><br>", unsafe_allow_html=True)
     _, col_center, _ = st.columns([1, 1.3, 1])
 
-    # Risoluzione percorso immagine logo
     logo_file = None
     for filename in ["urania_logo.png", "urania.png"]:
         if os.path.exists(filename):
@@ -87,13 +88,18 @@ if not st.session_state.authenticated:
         pwd = st.text_input("Password di Accesso:", type="password", placeholder="••••••••••••")
         
         if st.button("SBLOCCA TERMINALE", use_container_width=True):
-            if pwd == "Serafino12?#":
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Credenziali non valide.")
+            # REGOLA 3: Richiamo della password da st.secrets e utilizzo di hmac per prevenire timing attacks
+            try:
+                expected_password = st.secrets["APP_PASSWORD"]
+                if hmac.compare_digest(pwd, expected_password):
+                    st.session_state.authenticated = True
+                    st.rerun()
+                else:
+                    st.error("Credenziali non valide.")
+            except KeyError:
+                st.error("Errore di configurazione: 'APP_PASSWORD' mancante in st.secrets.")
+                st.stop()
     st.stop()
-
 # -----------------------------------------------------------------------------
 # 3. SIDEBAR DI NAVIGAZIONE (LAZY LOADING)
 # -----------------------------------------------------------------------------
