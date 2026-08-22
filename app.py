@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 # -----------------------------------------------------------------------------
-# 2. GESTIONE AUTENTICAZIONE E SICUREZZA (ANTI-CRASH)
+# 2. GESTIONE AUTENTICAZIONE E SICUREZZA
 # -----------------------------------------------------------------------------
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -86,7 +86,7 @@ if not st.session_state.authenticated:
             except KeyError:
                 st.error("Errore critico: 'APP_PASSWORD' mancante nel vault st.secrets.")
             except Exception as e:
-                st.error(دا=f"Errore imprevisto di sistema: {str(e)}")
+                st.error(f"Errore di sistema: {str(e)}")
     st.stop()
 
 # -----------------------------------------------------------------------------
@@ -114,24 +114,24 @@ with st.sidebar:
         st.rerun()
 
 # -----------------------------------------------------------------------------
-# 4. ROUTER DINAMICO PROTETTO
+# 4. ROUTER DINAMICO ISOLATO (TRY-EXCEPT GLOBALE)
 # -----------------------------------------------------------------------------
 if nav == "1. Macro Intelligence & Fed Liquidity":
     try:
         from pages_modules.page1_macro import render_page1
         render_page1()
     except Exception as e:
-        st.error(f"Errore di esecuzione in Pagina 1: {str(e)}")
+        st.error(f"Errore critico in Pagina 1: {str(e)}")
 
 elif nav == "2. Z-Score & COT Lab (CFTC)":
     try:
         from pages_modules.page2_zscore_cot import render_page2
         render_page2()
     except Exception as e:
-        st.error(f"Errore di esecuzione in Pagina 2: {str(e)}")
+        st.error(f"Errore critico in Pagina 2: {str(e)}")
 
 elif nav == "3. Quant Lab (Studi Storici Rea)":
-    st.info("Modulo 3 in fase di sviluppo strutturato.")
+    st.info("Modulo 3 in fase di sviluppo strutturato a compartimenti stagni.")
 
 elif nav == "4. POC Scanner & Telegram (Rea Radar)":
-    st.info("Modulo 4 in fase di sviluppo strutturato.")
+    st.info("Modulo 4 in fase di sviluppo strutturato a compartimenti stagni.")
